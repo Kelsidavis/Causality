@@ -1,6 +1,7 @@
 // Game engine editor - Phase 7: Hot Reload
 
 mod ui;
+pub mod ipc;
 
 use anyhow::Result;
 use engine_assets::{manager::AssetManager, mesh::Mesh, HotReloadWatcher, ReloadEvent};
@@ -44,6 +45,7 @@ struct EditorApp {
     viewport_controls: ViewportControls,
     hot_reload: Option<HotReloadWatcher>,
     script_paths: std::collections::HashMap<EntityId, std::path::PathBuf>,
+    ipc_channel: Option<ipc::IpcChannel>,
 }
 
 struct EguiState {
@@ -90,6 +92,7 @@ impl EditorApp {
             viewport_controls: ViewportControls::new(),
             hot_reload: None,
             script_paths: std::collections::HashMap::new(),
+            ipc_channel: None,
         }
     }
 
@@ -571,6 +574,27 @@ impl ApplicationHandler for EditorApp {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Process IPC commands from MCP server
+        if let Some(ipc) = &self.ipc_channel {
+            if let Ok(Some(command)) = ipc.try_recv_command() {
+                log::info!("Received IPC command: {:?}", command);
+
+                if let Some(scene) = &mut self.scene {
+                    let response = ipc::execute_command(command, scene);
+                    if let Err(e) = ipc.send_response(response) {
+                        log::error!("Failed to send IPC response: {}", e);
+                    }
+                } else {
+                    let response = ipc::EditorResponse::Error {
+                        message: "Scene not initialized".to_string(),
+                    };
+                    if let Err(e) = ipc.send_response(response) {
+                        log::error!("Failed to send IPC response: {}", e);
+                    }
+                }
+            }
+        }
+
         if let Some(window) = &self.window {
             window.request_redraw();
         }
