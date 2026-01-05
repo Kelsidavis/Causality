@@ -1,0 +1,155 @@
+// Scene - manages a collection of entities
+
+use crate::entity::{Entity, EntityId};
+use crate::transform::Transform;
+use glam::Mat4;
+use std::collections::HashMap;
+
+pub struct Scene {
+    pub name: String,
+    entities: HashMap<EntityId, Entity>,
+    next_id: u64,
+    root_entities: Vec<EntityId>,
+}
+
+impl Scene {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            entities: HashMap::new(),
+            next_id: 1,
+            root_entities: Vec::new(),
+        }
+    }
+
+    /// Create a new entity in the scene
+    pub fn create_entity(&mut self, name: String) -> EntityId {
+        let id = EntityId::new(self.next_id);
+        self.next_id += 1;
+
+        let entity = Entity::new(id, name);
+        self.entities.insert(id, entity);
+        self.root_entities.push(id);
+
+        id
+    }
+
+    /// Create an entity with a transform
+    pub fn create_entity_with_transform(&mut self, name: String, transform: Transform) -> EntityId {
+        let id = self.create_entity(name);
+        if let Some(entity) = self.entities.get_mut(&id) {
+            entity.transform = transform;
+        }
+        id
+    }
+
+    /// Get an entity by ID
+    pub fn get_entity(&self, id: EntityId) -> Option<&Entity> {
+        self.entities.get(&id)
+    }
+
+    /// Get a mutable entity by ID
+    pub fn get_entity_mut(&mut self, id: EntityId) -> Option<&mut Entity> {
+        self.entities.get_mut(&id)
+    }
+
+    /// Remove an entity from the scene
+    pub fn remove_entity(&mut self, id: EntityId) -> bool {
+        if let Some(entity) = self.entities.remove(&id) {
+            // Remove from parent's children list
+            if let Some(parent_id) = entity.parent {
+                if let Some(parent) = self.entities.get_mut(&parent_id) {
+                    parent.children.retain(|&child_id| child_id != id);
+                }
+            } else {
+                // Remove from root entities
+                self.root_entities.retain(|&root_id| root_id != id);
+            }
+
+            // Remove all children recursively
+            let children = entity.children.clone();
+            for child_id in children {
+                self.remove_entity(child_id);
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set the parent of an entity
+    pub fn set_parent(&mut self, child_id: EntityId, parent_id: Option<EntityId>) {
+        // Remove from current parent
+        if let Some(child) = self.entities.get(&child_id) {
+            if let Some(old_parent_id) = child.parent {
+                if let Some(old_parent) = self.entities.get_mut(&old_parent_id) {
+                    old_parent.children.retain(|&id| id != child_id);
+                }
+            } else {
+                self.root_entities.retain(|&id| id != child_id);
+            }
+        }
+
+        // Set new parent
+        if let Some(child) = self.entities.get_mut(&child_id) {
+            child.parent = parent_id;
+        }
+
+        // Add to new parent's children
+        if let Some(parent_id) = parent_id {
+            if let Some(parent) = self.entities.get_mut(&parent_id) {
+                if !parent.children.contains(&child_id) {
+                    parent.children.push(child_id);
+                }
+            }
+        } else {
+            // Add to root entities
+            if !self.root_entities.contains(&child_id) {
+                self.root_entities.push(child_id);
+            }
+        }
+    }
+
+    /// Get all entities
+    pub fn entities(&self) -> impl Iterator<Item = &Entity> {
+        self.entities.values()
+    }
+
+    /// Get all root entities (entities without parents)
+    pub fn root_entities(&self) -> &[EntityId] {
+        &self.root_entities
+    }
+
+    /// Calculate world matrix for an entity (including parent transforms)
+    pub fn world_matrix(&self, entity_id: EntityId) -> Mat4 {
+        if let Some(entity) = self.get_entity(entity_id) {
+            if let Some(parent_id) = entity.parent {
+                let parent_world = self.world_matrix(parent_id);
+                entity.transform.world_matrix(parent_world)
+            } else {
+                entity.transform.matrix()
+            }
+        } else {
+            Mat4::IDENTITY
+        }
+    }
+
+    /// Get entity count
+    pub fn entity_count(&self) -> usize {
+        self.entities.len()
+    }
+
+    /// Clear all entities
+    pub fn clear(&mut self) {
+        self.entities.clear();
+        self.root_entities.clear();
+        self.next_id = 1;
+    }
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        Self::new("Untitled Scene".to_string())
+    }
+}
