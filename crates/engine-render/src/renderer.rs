@@ -1,7 +1,8 @@
-// Basic wgpu renderer
+// wgpu renderer with multi-mesh support
 
+use crate::gpu_mesh::{GpuMesh, GpuVertex};
 use anyhow::Result;
-use glam::{Mat4, Vec3, Vec4};
+use glam::Mat4;
 use wgpu::util::DeviceExt;
 
 pub struct Renderer {
@@ -9,69 +10,16 @@ pub struct Renderer {
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub render_pipeline: wgpu::RenderPipeline,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
-    pub num_indices: u32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
+pub struct Uniforms {
+    pub view_proj: [[f32; 4]; 4],
+    pub model: [[f32; 4]; 4],
 }
-
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Uniforms {
-    view_proj: [[f32; 4]; 4],
-    model: [[f32; 4]; 4],
-}
-
-// Cube vertices (8 corners) with different colors
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.5, -0.5, -0.5], color: [1.0, 0.0, 0.0] }, // 0: red
-    Vertex { position: [0.5, -0.5, -0.5], color: [0.0, 1.0, 0.0] },  // 1: green
-    Vertex { position: [0.5, 0.5, -0.5], color: [0.0, 0.0, 1.0] },   // 2: blue
-    Vertex { position: [-0.5, 0.5, -0.5], color: [1.0, 1.0, 0.0] },  // 3: yellow
-    Vertex { position: [-0.5, -0.5, 0.5], color: [1.0, 0.0, 1.0] },  // 4: magenta
-    Vertex { position: [0.5, -0.5, 0.5], color: [0.0, 1.0, 1.0] },   // 5: cyan
-    Vertex { position: [0.5, 0.5, 0.5], color: [1.0, 1.0, 1.0] },    // 6: white
-    Vertex { position: [-0.5, 0.5, 0.5], color: [0.5, 0.5, 0.5] },   // 7: gray
-];
-
-// Cube indices (12 triangles = 6 faces * 2 triangles each)
-const INDICES: &[u16] = &[
-    0, 1, 2, 2, 3, 0, // front face
-    1, 5, 6, 6, 2, 1, // right face
-    5, 4, 7, 7, 6, 5, // back face
-    4, 0, 3, 3, 7, 4, // left face
-    3, 2, 6, 6, 7, 3, // top face
-    4, 5, 1, 1, 0, 4, // bottom face
-];
 
 impl Renderer {
     pub async fn new(
@@ -128,7 +76,7 @@ impl Renderer {
         // Create shader module
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/basic.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/pbr.wgsl").into()),
         });
 
         // Create uniform buffer
@@ -191,7 +139,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
+                buffers: &[GpuVertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -223,30 +171,13 @@ impl Renderer {
             cache: None,
         });
 
-        // Create vertex buffer
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        // Create index buffer
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
         Ok(Self {
             device,
             queue,
             surface_config,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
             uniform_buffer,
             uniform_bind_group,
-            num_indices: INDICES.len() as u32,
         })
     }
 
@@ -258,13 +189,37 @@ impl Renderer {
         }
     }
 
-    pub fn render(
+    /// Begin a render pass
+    pub fn begin_frame(
         &self,
         surface: &wgpu::Surface,
         depth_texture: &wgpu::TextureView,
+    ) -> Result<(wgpu::SurfaceTexture, wgpu::CommandEncoder, wgpu::TextureView)> {
+        let output = surface.get_current_texture()?;
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+
+        Ok((output, encoder, view))
+    }
+
+    /// Render a mesh with a given transform
+    pub fn render_mesh(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        depth_texture: &wgpu::TextureView,
+        mesh: &GpuMesh,
         view_proj: Mat4,
         model: Mat4,
-    ) -> Result<()> {
+        clear: bool,
+    ) {
         // Update uniforms
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
@@ -273,60 +228,54 @@ impl Renderer {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
-        // Get current surface texture
-        let output = surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        // Create command encoder
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
-
         // Begin render pass
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: if clear {
+                        wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.1,
                             g: 0.2,
                             b: 0.3,
                             a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
+                        })
+                    } else {
+                        wgpu::LoadOp::Load
                     },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth_texture,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_texture,
+                depth_ops: Some(wgpu::Operations {
+                    load: if clear {
+                        wgpu::LoadOp::Clear(1.0)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    store: wgpu::StoreOp::Store,
                 }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
-        }
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+        render_pass
+            .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+    }
 
-        // Submit commands
+    /// Finish the frame and present
+    pub fn end_frame(&self, encoder: wgpu::CommandEncoder, output: wgpu::SurfaceTexture) {
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        Ok(())
     }
 
     pub fn create_depth_texture(&self, width: u32, height: u32) -> wgpu::TextureView {
