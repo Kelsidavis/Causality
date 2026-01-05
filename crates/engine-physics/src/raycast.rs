@@ -56,7 +56,7 @@ impl super::PhysicsWorld {
 
         let filter = QueryFilter::default();
 
-        if let Some((_, toi)) = self.query_pipeline.cast_ray(
+        if let Some((collider_handle, intersection)) = self.query_pipeline.cast_ray_and_get_normal(
             &self.rigid_body_set,
             &self.collider_set,
             &ray,
@@ -64,13 +64,20 @@ impl super::PhysicsWorld {
             true,
             filter,
         ) {
-            let hit_point = ray.point_at(toi);
+            let hit_point = ray.point_at(intersection.time_of_impact);
+
+            // Get entity ID from collider's parent rigid body
+            let entity_id = self.collider_set
+                .get(collider_handle)
+                .and_then(|collider| collider.parent())
+                .and_then(|body_handle| self.get_entity_id(body_handle))
+                .unwrap_or(EntityId(0)); // Fallback if not found
 
             Some(RaycastHit {
-                entity_id: EntityId(0), // TODO: Implement entity lookup
+                entity_id,
                 point: Vec3::new(hit_point.x, hit_point.y, hit_point.z),
-                normal: Vec3::Y, // TODO: Calculate proper normal
-                distance: toi,
+                normal: Vec3::new(intersection.normal.x, intersection.normal.y, intersection.normal.z),
+                distance: intersection.time_of_impact,
             })
         } else {
             None
@@ -95,13 +102,20 @@ impl super::PhysicsWorld {
             query.max_distance,
             false, // solid - continue through all objects
             filter,
-            |_handle, intersection: rapier3d::prelude::RayIntersection| {
+            |collider_handle, intersection: rapier3d::prelude::RayIntersection| {
                 let hit_point = ray.point_at(intersection.time_of_impact);
 
+                // Get entity ID from collider's parent rigid body
+                let entity_id = self.collider_set
+                    .get(collider_handle)
+                    .and_then(|collider| collider.parent())
+                    .and_then(|body_handle| self.get_entity_id(body_handle))
+                    .unwrap_or(EntityId(0)); // Fallback if not found
+
                 hits.push(RaycastHit {
-                    entity_id: EntityId(0), // TODO: Implement entity lookup
+                    entity_id,
                     point: Vec3::new(hit_point.x, hit_point.y, hit_point.z),
-                    normal: Vec3::Y, // TODO: Calculate proper normal
+                    normal: Vec3::new(intersection.normal.x, intersection.normal.y, intersection.normal.z),
                     distance: intersection.time_of_impact,
                 });
 
