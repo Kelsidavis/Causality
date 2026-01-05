@@ -977,6 +977,7 @@ dependencies = [
  "glam",
  "log",
  "rapier3d",
+ "serde",
 ]
 
 [[package]]

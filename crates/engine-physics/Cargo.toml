@@ -10,3 +10,4 @@ glam = { workspace = true }
 rapier3d = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true }

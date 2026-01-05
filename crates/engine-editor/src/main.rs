@@ -1,7 +1,8 @@
-// Game engine editor - Phase 2: Scene system with multiple meshes
+// Game engine editor - Phase 3: Physics simulation
 
 use anyhow::Result;
 use engine_assets::{manager::AssetManager, mesh::Mesh};
+use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody};
 use engine_render::{
     camera::Camera,
     gpu_mesh::GpuVertex,
@@ -30,6 +31,7 @@ struct EditorApp {
     camera: Option<Camera>,
     scene: Option<Scene>,
     asset_manager: Option<AssetManager>,
+    physics_world: Option<PhysicsWorld>,
     entity_ids: Vec<EntityId>,
     time: f32,
 }
@@ -63,6 +65,7 @@ impl EditorApp {
             camera: None,
             scene: None,
             asset_manager: None,
+            physics_world: None,
             entity_ids: Vec::new(),
             time: 0.0,
         }
@@ -95,15 +98,15 @@ impl EditorApp {
         // Create demo scene
         let mut scene = Scene::new("Demo Scene".to_string());
 
-        // Entity 1: Rotating cube at center
+        // Entity 1: Dynamic cube that will fall
         let cube_mesh = Mesh::cube();
         let cube_vertices = convert_mesh_to_gpu(&cube_mesh);
         mesh_manager.upload_mesh(&renderer.device, "cube".to_string(), &cube_vertices, &cube_mesh.indices);
 
-        let cube_id = scene.create_entity("Rotating Cube".to_string());
+        let cube_id = scene.create_entity("Falling Cube".to_string());
         if let Some(entity) = scene.get_entity_mut(cube_id) {
             entity.transform = Transform {
-                position: Vec3::new(0.0, 0.0, 0.0),
+                position: Vec3::new(0.0, 5.0, 0.0), // Start high in the air
                 rotation: Quat::IDENTITY,
                 scale: Vec3::ONE,
             };
@@ -111,9 +114,12 @@ impl EditorApp {
                 mesh_path: "cube".to_string(),
                 material_path: None,
             });
+            // Add physics - dynamic rigid body with box collider
+            entity.add_component(RigidBody::dynamic(1.0));
+            entity.add_component(Collider::box_collider(Vec3::splat(0.5))); // Half extents = 0.5 (full size 1.0)
         }
 
-        // Entity 2: Ground plane
+        // Entity 2: Static ground plane
         let plane_mesh = Mesh::plane(10.0);
         let plane_vertices = convert_mesh_to_gpu(&plane_mesh);
         mesh_manager.upload_mesh(&renderer.device, "plane".to_string(), &plane_vertices, &plane_mesh.indices);
@@ -121,7 +127,7 @@ impl EditorApp {
         let plane_id = scene.create_entity("Ground Plane".to_string());
         if let Some(entity) = scene.get_entity_mut(plane_id) {
             entity.transform = Transform {
-                position: Vec3::new(0.0, -1.5, 0.0),
+                position: Vec3::new(0.0, 0.0, 0.0), // Ground at y=0
                 rotation: Quat::IDENTITY,
                 scale: Vec3::new(1.0, 1.0, 1.0),
             };
@@ -129,17 +135,20 @@ impl EditorApp {
                 mesh_path: "plane".to_string(),
                 material_path: None,
             });
+            // Add physics - static rigid body with box collider (thin ground)
+            entity.add_component(RigidBody::static_body());
+            entity.add_component(Collider::box_collider(Vec3::new(5.0, 0.1, 5.0))); // Thin platform
         }
 
-        // Entity 3: Small cube orbiting
+        // Entity 3: Small dynamic cube that will also fall
         let small_cube_mesh = Mesh::cube();
         let small_cube_vertices = convert_mesh_to_gpu(&small_cube_mesh);
         mesh_manager.upload_mesh(&renderer.device, "small_cube".to_string(), &small_cube_vertices, &small_cube_mesh.indices);
 
-        let small_cube_id = scene.create_entity("Orbiting Cube".to_string());
+        let small_cube_id = scene.create_entity("Falling Small Cube".to_string());
         if let Some(entity) = scene.get_entity_mut(small_cube_id) {
             entity.transform = Transform {
-                position: Vec3::new(3.0, 0.5, 0.0),
+                position: Vec3::new(2.0, 8.0, 0.0), // Start higher and offset
                 rotation: Quat::IDENTITY,
                 scale: Vec3::splat(0.5), // Make it smaller
             };
@@ -147,10 +156,17 @@ impl EditorApp {
                 mesh_path: "small_cube".to_string(),
                 material_path: None,
             });
+            // Add physics - dynamic rigid body with smaller box collider
+            entity.add_component(RigidBody::dynamic(0.5)); // Lighter mass
+            entity.add_component(Collider::box_collider(Vec3::splat(0.25)).with_restitution(0.3)); // Half of 0.5 scale, bouncy
         }
 
-        // Store entity IDs for animation
+        // Store entity IDs for reference
         let entity_ids = vec![cube_id, plane_id, small_cube_id];
+
+        // Initialize physics world
+        let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
+        PhysicsSync::initialize_physics(&mut physics_world, &scene)?;
 
         self.window = Some(window);
         self.wgpu_state = Some(WgpuState {
@@ -163,6 +179,7 @@ impl EditorApp {
         self.camera = Some(camera);
         self.scene = Some(scene);
         self.asset_manager = Some(asset_manager);
+        self.physics_world = Some(physics_world);
         self.entity_ids = entity_ids;
 
         Ok(())
@@ -188,30 +205,18 @@ impl EditorApp {
         let Some(scene) = &mut self.scene else {
             return Ok(());
         };
+        let Some(physics_world) = &mut self.physics_world else {
+            return Ok(());
+        };
 
-        // Update time
-        self.time += 0.016; // ~60fps
+        // Fixed time step for physics (60fps)
+        let dt = 1.0 / 60.0;
 
-        // Animate entities
-        if self.entity_ids.len() >= 3 {
-            // Rotate the center cube
-            let cube_id = self.entity_ids[0];
-            if let Some(entity) = scene.get_entity_mut(cube_id) {
-                entity.transform.rotation = Quat::from_rotation_y(self.time) * Quat::from_rotation_x(self.time * 0.5);
-            }
+        // Step physics simulation
+        physics_world.step(dt);
 
-            // Orbit the small cube
-            let small_cube_id = self.entity_ids[2];
-            if let Some(entity) = scene.get_entity_mut(small_cube_id) {
-                let orbit_radius = 3.0;
-                entity.transform.position = Vec3::new(
-                    orbit_radius * (self.time * 0.5).cos(),
-                    0.5 + (self.time * 2.0).sin() * 0.3,
-                    orbit_radius * (self.time * 0.5).sin(),
-                );
-                entity.transform.rotation = Quat::from_rotation_y(self.time * 2.0);
-            }
-        }
+        // Sync physics world back to scene transforms
+        PhysicsSync::sync_to_scene(physics_world, scene)?;
 
         // Begin frame
         let (output, mut encoder, view) = wgpu_state.renderer.begin_frame(
@@ -255,7 +260,7 @@ impl ApplicationHandler for EditorApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Game Engine Editor - Phase 2: Scene System")
+                .with_title("Game Engine Editor - Phase 3: Physics Simulation")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             match event_loop.create_window(window_attributes) {
