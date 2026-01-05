@@ -1,0 +1,13 @@
+[package]
+name = "engine-audio"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+engine-scene = { path = "../engine-scene" }
+glam = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+
+# Audio playback
+rodio = "0.19"

@@ -13,6 +13,7 @@ engine-render = { path = "../engine-render" }
 engine-physics = { path = "../engine-physics" }
 engine-scripting = { path = "../engine-scripting" }
 engine-assets = { path = "../engine-assets" }
+engine-audio = { path = "../engine-audio" }
 engine-scene = { path = "../engine-scene" }
 glam = { workspace = true }
 wgpu = { workspace = true }

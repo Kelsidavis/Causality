@@ -5,6 +5,7 @@ members = [
     "crates/engine-physics",
     "crates/engine-scripting",
     "crates/engine-assets",
+    "crates/engine-audio",
     "crates/engine-scene",
     "crates/engine-editor",
     "crates/engine-mcp-server",
