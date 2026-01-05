@@ -358,16 +358,60 @@ fn update(ctx) {
                             }
                         }
                     }
-                    ReloadEvent::AssetChanged(path) |
-                    ReloadEvent::TextureChanged(path) |
+                    ReloadEvent::TextureChanged(path) => {
+                        log::info!("Texture changed: {:?}", path);
+                        if let Some(asset_manager) = &mut self.asset_manager {
+                            // Get relative path from absolute path
+                            if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                                let path_str = relative_path.to_string_lossy();
+                                if let Err(e) = asset_manager.reload_texture(&path_str) {
+                                    log::error!("Failed to reload texture {:?}: {}", path, e);
+                                } else {
+                                    log::info!("Successfully reloaded texture: {:?}", path);
+                                    // TODO: Update GPU texture resources
+                                }
+                            }
+                        }
+                    }
                     ReloadEvent::ModelChanged(path) => {
-                        log::info!("Asset changed (reload not yet implemented): {:?}", path);
-                        // TODO: Implement asset hot-reload
-                        // This would involve:
-                        // 1. Unload old asset from cache
-                        // 2. Load new asset
-                        // 3. Update GPU resources
-                        // 4. Update all entities using this asset
+                        log::info!("Model changed: {:?}", path);
+                        if let Some(asset_manager) = &mut self.asset_manager {
+                            // Get relative path from absolute path
+                            if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                                let path_str = relative_path.to_string_lossy();
+                                if path_str.ends_with(".gltf") || path_str.ends_with(".glb") {
+                                    if let Err(e) = asset_manager.reload_gltf(&path_str) {
+                                        log::error!("Failed to reload model {:?}: {}", path, e);
+                                    } else {
+                                        log::info!("Successfully reloaded model: {:?}", path);
+                                        // TODO: Re-upload to GPU and update entities
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ReloadEvent::AssetChanged(path) => {
+                        log::info!("Generic asset changed: {:?}", path);
+                        // Generic asset change - determine type by extension
+                        let path_str = path.to_string_lossy();
+                        if path_str.ends_with(".png") || path_str.ends_with(".jpg") ||
+                           path_str.ends_with(".jpeg") || path_str.ends_with(".bmp") {
+                            // Treat as texture
+                            if let Some(asset_manager) = &mut self.asset_manager {
+                                if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                                    let rel_str = relative_path.to_string_lossy();
+                                    let _ = asset_manager.reload_texture(&rel_str);
+                                }
+                            }
+                        } else if path_str.ends_with(".gltf") || path_str.ends_with(".glb") {
+                            // Treat as model
+                            if let Some(asset_manager) = &mut self.asset_manager {
+                                if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                                    let rel_str = relative_path.to_string_lossy();
+                                    let _ = asset_manager.reload_gltf(&rel_str);
+                                }
+                            }
+                        }
                     }
                 }
             }

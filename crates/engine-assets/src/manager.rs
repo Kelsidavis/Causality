@@ -46,6 +46,11 @@ impl AssetManager {
         self.asset_root.join(relative_path)
     }
 
+    /// Get the asset root directory
+    pub fn asset_root(&self) -> &Path {
+        &self.asset_root
+    }
+
     /// Load a GLTF model (with caching)
     pub fn load_gltf(&mut self, path: &str) -> Result<AssetHandle<Vec<Mesh>>> {
         let full_path = self.full_path(path);
@@ -109,6 +114,42 @@ impl AssetManager {
         self.meshes.clear();
         self.textures.clear();
         log::info!("Asset cache cleared");
+    }
+
+    /// Reload a texture (invalidate cache and reload from disk)
+    pub fn reload_texture(&mut self, path: &str) -> Result<AssetHandle<Texture>> {
+        let full_path = self.full_path(path);
+
+        // Remove from cache
+        self.textures.remove(&full_path);
+
+        // Force reload
+        log::info!("Hot-reloading texture: {:?}", full_path);
+        self.load_texture(path)
+    }
+
+    /// Reload a GLTF model (invalidate cache and reload from disk)
+    pub fn reload_gltf(&mut self, path: &str) -> Result<AssetHandle<Vec<Mesh>>> {
+        let full_path = self.full_path(path);
+
+        // Remove from cache
+        self.meshes.remove(&full_path);
+
+        // Force reload
+        log::info!("Hot-reloading GLTF: {:?}", full_path);
+        self.load_gltf(path)
+    }
+
+    /// Check if a texture is loaded in cache
+    pub fn has_texture(&self, path: &str) -> bool {
+        let full_path = self.full_path(path);
+        self.textures.contains_key(&full_path)
+    }
+
+    /// Check if a model is loaded in cache
+    pub fn has_model(&self, path: &str) -> bool {
+        let full_path = self.full_path(path);
+        self.meshes.contains_key(&full_path)
     }
 }
 
