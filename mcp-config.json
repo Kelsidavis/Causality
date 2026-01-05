@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "game-engine": {
+      "command": "cargo",
+      "args": ["run", "--bin", "engine-mcp-server", "--quiet"],
+      "cwd": "/home/k/game-engine",
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }
+  }
+}

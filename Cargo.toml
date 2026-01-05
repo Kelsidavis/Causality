@@ -16,7 +16,7 @@ resolver = "2"
 glam = { version = "0.29", features = ["serde"] }
 
 # Rendering
-wgpu = "23.0"
+wgpu = "27.0"
 pollster = "0.4"  # For blocking on async operations
 
 # Physics
@@ -30,9 +30,10 @@ gltf = "1.4"
 image = "0.25"
 
 # GUI
-egui = "0.30"
+egui = "0.33"
 egui_code_editor = "0.2"
-egui-winit = "0.30"
+egui-winit = "0.33"
+egui-wgpu = "0.33"
 
 # Windowing
 winit = "0.30"

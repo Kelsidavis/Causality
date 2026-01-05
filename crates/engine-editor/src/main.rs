@@ -1,7 +1,9 @@
-// Game engine editor - Phase 3: Physics simulation
+// Game engine editor - Phase 7: Hot Reload
+
+mod ui;
 
 use anyhow::Result;
-use engine_assets::{manager::AssetManager, mesh::Mesh};
+use engine_assets::{manager::AssetManager, mesh::Mesh, HotReloadWatcher, ReloadEvent};
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody};
 use engine_render::{
     camera::Camera,
@@ -15,8 +17,10 @@ use engine_scene::{
     scene::Scene,
     transform::Transform,
 };
+use engine_scripting::{Script, ScriptSystem};
 use glam::{Quat, Vec3};
 use std::sync::Arc;
+use ui::{viewport::ViewportControls, EditorUi};
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -32,8 +36,20 @@ struct EditorApp {
     scene: Option<Scene>,
     asset_manager: Option<AssetManager>,
     physics_world: Option<PhysicsWorld>,
+    script_system: Option<ScriptSystem>,
     entity_ids: Vec<EntityId>,
     time: f32,
+    ui: Option<EditorUi>,
+    egui_state: Option<EguiState>,
+    viewport_controls: ViewportControls,
+    hot_reload: Option<HotReloadWatcher>,
+    script_paths: std::collections::HashMap<EntityId, std::path::PathBuf>,
+}
+
+struct EguiState {
+    context: egui::Context,
+    winit_state: egui_winit::State,
+    renderer: egui_wgpu::Renderer,
 }
 
 struct WgpuState {
@@ -66,15 +82,21 @@ impl EditorApp {
             scene: None,
             asset_manager: None,
             physics_world: None,
+            script_system: None,
             entity_ids: Vec::new(),
             time: 0.0,
+            ui: None,
+            egui_state: None,
+            viewport_controls: ViewportControls::new(),
+            hot_reload: None,
+            script_paths: std::collections::HashMap::new(),
         }
     }
 
     fn initialize(&mut self, window: Arc<Window>) -> Result<()> {
         let size = window.inner_size();
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -117,6 +139,18 @@ impl EditorApp {
             // Add physics - dynamic rigid body with box collider
             entity.add_component(RigidBody::dynamic(1.0));
             entity.add_component(Collider::box_collider(Vec3::splat(0.5))); // Half extents = 0.5 (full size 1.0)
+
+            // Add script - slow rotation while falling
+            entity.add_component(Script::new(r#"
+fn update(ctx) {
+    // Rotate slowly around Y axis
+    let rotation_speed = 1.0;
+    let angle = ctx.dt * rotation_speed;
+    let rotation_delta = quat_from_rotation_y(angle);
+    ctx.rotation = ctx.rotation * rotation_delta;
+    ctx
+}
+"#.to_string()));
         }
 
         // Entity 2: Static ground plane
@@ -159,6 +193,20 @@ impl EditorApp {
             // Add physics - dynamic rigid body with smaller box collider
             entity.add_component(RigidBody::dynamic(0.5)); // Lighter mass
             entity.add_component(Collider::box_collider(Vec3::splat(0.25)).with_restitution(0.3)); // Half of 0.5 scale, bouncy
+
+            // Add script - spinning on multiple axes
+            entity.add_component(Script::new(r#"
+fn update(ctx) {
+    // Rotate on multiple axes for interesting motion
+    let spin_speed = 2.0;
+    let angle = ctx.dt * spin_speed;
+    let rot_x = quat_from_rotation_x(angle * 0.7);
+    let rot_y = quat_from_rotation_y(angle);
+    let rot_z = quat_from_rotation_z(angle * 0.5);
+    ctx.rotation = ctx.rotation * rot_x * rot_y * rot_z;
+    ctx
+}
+"#.to_string()));
         }
 
         // Store entity IDs for reference
@@ -168,7 +216,29 @@ impl EditorApp {
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
         PhysicsSync::initialize_physics(&mut physics_world, &scene)?;
 
-        self.window = Some(window);
+        // Initialize script system
+        let mut script_system = ScriptSystem::new();
+        script_system.initialize(&scene)?;
+        script_system.start(&mut scene)?;
+        log::info!("Script system initialized");
+
+        // Initialize egui
+        let egui_context = egui::Context::default();
+        let egui_winit_state = egui_winit::State::new(
+            egui_context.clone(),
+            egui::ViewportId::ROOT,
+            &window,
+            Some(window.scale_factor() as f32),
+            None, // theme
+            Some(2048), // max_texture_side
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &renderer.device,
+            renderer.surface_config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
+
+        self.window = Some(window.clone());
         self.wgpu_state = Some(WgpuState {
             instance,
             surface,
@@ -180,7 +250,36 @@ impl EditorApp {
         self.scene = Some(scene);
         self.asset_manager = Some(asset_manager);
         self.physics_world = Some(physics_world);
+        self.script_system = Some(script_system);
         self.entity_ids = entity_ids;
+        self.ui = Some(EditorUi::new());
+        self.egui_state = Some(EguiState {
+            context: egui_context,
+            winit_state: egui_winit_state,
+            renderer: egui_renderer,
+        });
+
+        // Initialize hot reload watcher
+        let mut hot_reload = HotReloadWatcher::new()?;
+
+        // Watch assets directory if it exists
+        let assets_dir = std::env::current_dir()?.join("assets");
+        if assets_dir.exists() {
+            if let Err(e) = hot_reload.watch_directory(&assets_dir) {
+                log::warn!("Failed to watch assets directory: {}", e);
+            }
+        }
+
+        // Watch scripts directory if it exists
+        let scripts_dir = std::env::current_dir()?.join("scripts");
+        if scripts_dir.exists() {
+            if let Err(e) = hot_reload.watch_directory(&scripts_dir) {
+                log::warn!("Failed to watch scripts directory: {}", e);
+            }
+        }
+
+        self.hot_reload = Some(hot_reload);
+        log::info!("Hot reload system initialized");
 
         Ok(())
     }
@@ -199,7 +298,7 @@ impl EditorApp {
         let Some(wgpu_state) = &self.wgpu_state else {
             return Ok(());
         };
-        let Some(camera) = &self.camera else {
+        let Some(camera) = &mut self.camera else {
             return Ok(());
         };
         let Some(scene) = &mut self.scene else {
@@ -208,9 +307,77 @@ impl EditorApp {
         let Some(physics_world) = &mut self.physics_world else {
             return Ok(());
         };
+        let Some(script_system) = &mut self.script_system else {
+            return Ok(());
+        };
+        let Some(window) = &self.window else {
+            return Ok(());
+        };
 
         // Fixed time step for physics (60fps)
         let dt = 1.0 / 60.0;
+
+        // Process hot reload events
+        if let Some(hot_reload) = &mut self.hot_reload {
+            let events = hot_reload.poll_events();
+            for event in events {
+                match event {
+                    ReloadEvent::ScriptChanged(path) => {
+                        log::info!("Reloading script: {:?}", path);
+                        // Find entity with this script path
+                        let mut entity_to_reload = None;
+                        for (entity_id, script_path) in &self.script_paths {
+                            if script_path == &path {
+                                entity_to_reload = Some(*entity_id);
+                                break;
+                            }
+                        }
+
+                        if let Some(entity_id) = entity_to_reload {
+                            // Reload the script
+                            match std::fs::read_to_string(&path) {
+                                Ok(source) => {
+                                    if let Err(e) = script_system.reload_script(entity_id, source) {
+                                        log::error!("Failed to reload script for entity {:?}: {}", entity_id, e);
+                                        if let Some(ui) = &mut self.ui {
+                                            ui.log_error(format!("Script reload failed: {}", e));
+                                        }
+                                    } else {
+                                        log::info!("Successfully reloaded script for entity {:?}", entity_id);
+                                        if let Some(ui) = &mut self.ui {
+                                            ui.log_info(format!("Reloaded script: {}", path.display()));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to read script file {:?}: {}", path, e);
+                                }
+                            }
+                        }
+                    }
+                    ReloadEvent::AssetChanged(path) |
+                    ReloadEvent::TextureChanged(path) |
+                    ReloadEvent::ModelChanged(path) => {
+                        log::info!("Asset changed (reload not yet implemented): {:?}", path);
+                        // TODO: Implement asset hot-reload
+                        // This would involve:
+                        // 1. Unload old asset from cache
+                        // 2. Load new asset
+                        // 3. Update GPU resources
+                        // 4. Update all entities using this asset
+                    }
+                }
+            }
+
+            // Cleanup old debounce entries periodically
+            hot_reload.cleanup_old_debounce_entries();
+        }
+
+        // Update camera from viewport controls
+        self.viewport_controls.update_camera(camera);
+
+        // Update scripts
+        script_system.update(scene, dt)?;
 
         // Step physics simulation
         physics_world.step(dt);
@@ -249,8 +416,73 @@ impl EditorApp {
             }
         }
 
-        // End frame
-        wgpu_state.renderer.end_frame(encoder, output);
+        // Render egui UI
+        let (paint_jobs, textures_delta, screen_descriptor) = {
+            let ui = self.ui.as_mut().unwrap();
+            let egui_state = self.egui_state.as_mut().unwrap();
+
+            let raw_input = egui_state.winit_state.take_egui_input(window);
+            let full_output = egui_state.context.run(raw_input, |ctx| {
+                ui.render(ctx, scene);
+            });
+
+            egui_state.winit_state.handle_platform_output(
+                window,
+                full_output.platform_output,
+            );
+
+            let paint_jobs = egui_state.context.tessellate(
+                full_output.shapes,
+                full_output.pixels_per_point,
+            );
+
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [wgpu_state.renderer.surface_config.width, wgpu_state.renderer.surface_config.height],
+                pixels_per_point: window.scale_factor() as f32,
+            };
+
+            for (id, image_delta) in &full_output.textures_delta.set {
+                egui_state.renderer.update_texture(
+                    &wgpu_state.renderer.device,
+                    &wgpu_state.renderer.queue,
+                    *id,
+                    image_delta,
+                );
+            }
+
+            (paint_jobs, full_output.textures_delta, screen_descriptor)
+        };
+
+        // Update buffers and render - egui_state borrow is ended
+        {
+            let egui_state = self.egui_state.as_mut().unwrap();
+            egui_state.renderer.update_buffers(
+                &wgpu_state.renderer.device,
+                &wgpu_state.renderer.queue,
+                &mut encoder,
+                &paint_jobs,
+                &screen_descriptor,
+            );
+        }
+
+        // Submit main render encoder
+        wgpu_state.renderer.queue.submit(std::iter::once(encoder.finish()));
+
+        // TODO: egui rendering - requires investigation of egui-wgpu 0.33 API changes
+        // The render() method signature appears to have changed and requires further research
+        // For now, UI logic executes but rendering is disabled
+        // See: https://github.com/emilk/egui/blob/master/crates/egui-wgpu/CHANGELOG.md
+
+        {
+            let egui_state = self.egui_state.as_mut().unwrap();
+            // Free textures
+            for id in &textures_delta.free {
+                egui_state.renderer.free_texture(id);
+            }
+        }
+
+        // Present
+        output.present();
 
         Ok(())
     }
@@ -260,7 +492,7 @@ impl ApplicationHandler for EditorApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Game Engine Editor - Phase 3: Physics Simulation")
+                .with_title("Game Engine Editor - Phase 7: Hot Reload")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             match event_loop.create_window(window_attributes) {
@@ -285,6 +517,32 @@ impl ApplicationHandler for EditorApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        // Let egui handle the event first
+        if let (Some(egui_state), Some(window)) = (&mut self.egui_state, &self.window) {
+            let response = egui_state.winit_state.on_window_event(
+                window,
+                &event,
+            );
+            if response.consumed {
+                return; // Event was consumed by egui, don't process further
+            }
+        }
+
+        // Handle viewport controls (camera)
+        match &event {
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.viewport_controls.handle_mouse_button(*button, *state);
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.viewport_controls.handle_mouse_motion(position.x as f32, position.y as f32);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.viewport_controls.handle_mouse_wheel(*delta);
+            }
+            _ => {}
+        }
+
+        // Handle other window events
         match event {
             WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
                 event: KeyEvent {

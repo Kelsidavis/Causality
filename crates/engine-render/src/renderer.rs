@@ -35,20 +35,18 @@ impl Renderer {
                 compatible_surface: Some(surface),
                 force_fallback_adapter: false,
             })
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Failed to find suitable adapter"))?;
+            .await?;
 
         // Request device
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Main Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: Default::default(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("Main Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                experimental_features: Default::default(),
+                trace: Default::default(),
+            })
             .await?;
 
         // Configure surface
@@ -247,6 +245,7 @@ impl Renderer {
                     },
                     store: wgpu::StoreOp::Store,
                 },
+                depth_slice: None,
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: depth_texture,
