@@ -1,0 +1,12 @@
+[package]
+name = "engine-physics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+engine-scene = { path = "../engine-scene" }
+glam = { workspace = true }
+rapier3d = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }

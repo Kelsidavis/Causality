@@ -1,0 +1,13 @@
+[package]
+name = "engine-render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+glam = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+bytemuck = { version = "1.14", features = ["derive"] }

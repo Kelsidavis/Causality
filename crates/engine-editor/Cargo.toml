@@ -1,0 +1,29 @@
+[package]
+name = "engine-editor"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "editor"
+path = "src/main.rs"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+engine-render = { path = "../engine-render" }
+engine-physics = { path = "../engine-physics" }
+engine-scripting = { path = "../engine-scripting" }
+engine-assets = { path = "../engine-assets" }
+engine-scene = { path = "../engine-scene" }
+glam = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+egui = { workspace = true }
+egui_code_editor = { workspace = true }
+egui-winit = { workspace = true }
+egui-wgpu = "0.30"
+winit = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+crossbeam-channel = { workspace = true }
+bytemuck = { version = "1.14", features = ["derive"] }

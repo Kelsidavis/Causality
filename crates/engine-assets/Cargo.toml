@@ -1,0 +1,13 @@
+[package]
+name = "engine-assets"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glam = { workspace = true }
+gltf = { workspace = true }
+image = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+notify = { workspace = true }
+serde = { workspace = true }
