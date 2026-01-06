@@ -1,6 +1,7 @@
 // wgpu renderer with multi-mesh support
 
 use crate::gpu_mesh::{GpuMesh, GpuVertex};
+use crate::texture_manager::TextureManager;
 use anyhow::Result;
 use glam::Mat4;
 use wgpu::util::DeviceExt;
@@ -121,10 +122,13 @@ impl Renderer {
             }],
         });
 
+        // Create texture bind group layout using TextureManager's descriptor
+        let texture_bind_group_layout = device.create_bind_group_layout(&TextureManager::bind_group_layout_descriptor());
+
         // Create pipeline layout with push constants for model matrix
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout, &texture_bind_group_layout],
             push_constant_ranges: &[wgpu::PushConstantRange {
                 stages: wgpu::ShaderStages::VERTEX,
                 range: 0..64, // mat4x4<f32> = 64 bytes
@@ -217,7 +221,7 @@ impl Renderer {
         Ok((output, encoder, view))
     }
 
-    /// Render a mesh with a given transform
+    /// Render a mesh with a given transform and texture
     pub fn render_mesh(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -226,6 +230,7 @@ impl Renderer {
         mesh: &GpuMesh,
         view_proj: Mat4,
         model: Mat4,
+        texture_bind_group: &wgpu::BindGroup,
         clear: bool,
     ) {
         // Update uniforms (only view_proj, model is in push constants)
@@ -279,6 +284,7 @@ impl Renderer {
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_bind_group(1, texture_bind_group, &[]);
         // Set push constants for model matrix
         render_pass.set_push_constants(
             wgpu::ShaderStages::VERTEX,

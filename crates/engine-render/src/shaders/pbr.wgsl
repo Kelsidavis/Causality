@@ -7,6 +7,12 @@ struct Uniforms {
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
+// Texture and sampler
+@group(1) @binding(0)
+var t_texture: texture_2d<f32>;
+@group(1) @binding(1)
+var t_sampler: sampler;
+
 // Push constants for per-object data (model matrix)
 struct PushConstants {
     model: mat4x4<f32>,
@@ -59,8 +65,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diffuse = max(dot(in.normal, light_dir), 0.0);
     let lighting = ambient + diffuse * 0.7;
 
-    // Use vertex color or default white
-    let base_color = in.color;
+    // Sample texture
+    let tex_color = textureSample(t_texture, t_sampler, in.tex_coord);
 
-    return vec4<f32>(base_color * lighting, 1.0);
+    // Combine texture with vertex color and lighting
+    let base_color = tex_color.rgb * in.color;
+
+    return vec4<f32>(base_color * lighting, tex_color.a);
 }

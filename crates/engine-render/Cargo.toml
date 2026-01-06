@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 engine-core = { path = "../engine-core" }
+engine-assets = { path = "../engine-assets" }
 glam = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }

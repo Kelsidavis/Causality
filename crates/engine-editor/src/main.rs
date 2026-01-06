@@ -5,7 +5,7 @@ pub mod ipc;
 mod file_ipc;
 
 use anyhow::Result;
-use engine_assets::{manager::AssetManager, mesh::Mesh, HotReloadWatcher, ReloadEvent};
+use engine_assets::{manager::AssetManager, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent};
 use wgpu::util::DeviceExt;
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody};
 use engine_render::{
@@ -16,6 +16,7 @@ use engine_render::{
     renderer::Renderer,
     shadow::ShadowMap,
     skybox::Skybox,
+    texture_manager::TextureManager,
 };
 use engine_scene::{
     components::MeshRenderer,
@@ -65,6 +66,7 @@ struct WgpuState {
     surface: wgpu::Surface<'static>,
     renderer: Renderer,
     mesh_manager: MeshManager,
+    texture_manager: TextureManager,
     depth_texture: wgpu::TextureView,
     skybox: Option<Skybox>,
     shadow_map: Option<ShadowMap>,
@@ -123,12 +125,16 @@ impl EditorApp {
 
         let surface = instance.create_surface(window.clone())?;
 
+        // Create renderer
         let renderer = pollster::block_on(Renderer::new(
             &instance,
             &surface,
             size.width,
             size.height,
         ))?;
+
+        // Create texture manager with the renderer's device
+        let mut texture_manager = TextureManager::new(&renderer.device, &renderer.queue);
 
         let depth_texture = renderer.create_depth_texture(size.width, size.height);
         let camera = Camera::new(size.width, size.height);
@@ -140,19 +146,42 @@ impl EditorApp {
         // Create castle and countryside scene
         let mut scene = Scene::new("Castle and Countryside".to_string());
 
-        // Create colored cube meshes for the scene
-        // Stone gray for castle structures
-        let stone_cube = Mesh::cube_with_color(Vec3::new(0.6, 0.6, 0.65));
+        // Load AI-generated textures from Stable Diffusion
+        log::info!("Loading AI-generated textures...");
+
+        // Load stone texture for castle walls
+        if let Ok(stone_tex) = Texture::from_file("generated_assets/textures/generated_85b14ace.png") {
+            texture_manager.upload_texture(&renderer.device, &renderer.queue, "stone".to_string(), &stone_tex);
+            log::info!("Loaded stone texture");
+        }
+
+        // Load grass texture for terrain
+        if let Ok(grass_tex) = Texture::from_file("generated_assets/textures/generated_9c19e917.png") {
+            texture_manager.upload_texture(&renderer.device, &renderer.queue, "grass".to_string(), &grass_tex);
+            log::info!("Loaded grass texture");
+        }
+
+        // Load water texture for moat
+        if let Ok(water_tex) = Texture::from_file("generated_assets/textures/generated_ef5a5024.png") {
+            texture_manager.upload_texture(&renderer.device, &renderer.queue, "water".to_string(), &water_tex);
+            log::info!("Loaded water texture");
+        }
+
+        // Create cube meshes with white color (texture will provide color)
+        let white = Vec3::ONE; // White tint allows texture to show through
+
+        // Stone cube for castle structures
+        let stone_cube = Mesh::cube_with_color(white);
         let stone_vertices = convert_mesh_to_gpu(&stone_cube);
         mesh_manager.upload_mesh(&renderer.device, "stone_cube".to_string(), &stone_vertices, &stone_cube.indices);
 
-        // Grass green for terrain
-        let grass_cube = Mesh::cube_with_color(Vec3::new(0.3, 0.6, 0.2));
+        // Grass cube for terrain
+        let grass_cube = Mesh::cube_with_color(white);
         let grass_vertices = convert_mesh_to_gpu(&grass_cube);
         mesh_manager.upload_mesh(&renderer.device, "grass_cube".to_string(), &grass_vertices, &grass_cube.indices);
 
-        // Water blue-green for moat
-        let water_cube = Mesh::cube_with_color(Vec3::new(0.2, 0.4, 0.6));
+        // Water cube for moat
+        let water_cube = Mesh::cube_with_color(white);
         let water_vertices = convert_mesh_to_gpu(&water_cube);
         mesh_manager.upload_mesh(&renderer.device, "water_cube".to_string(), &water_vertices, &water_cube.indices);
 
@@ -443,6 +472,7 @@ impl EditorApp {
             surface,
             renderer,
             mesh_manager,
+            texture_manager,
             depth_texture,
             skybox,
             shadow_map,
@@ -779,13 +809,31 @@ impl EditorApp {
             }
         }
 
-        // Render all entities using the old working method (one at a time with clear flag)
+        // Render all entities with textures
         let mut first_mesh = wgpu_state.skybox.is_none();
         for entity in scene.entities() {
             if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
                 if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&mesh_renderer.mesh_path) {
                     if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
                         let world_matrix = scene.world_matrix(entity.id);
+
+                        // Determine texture based on mesh name
+                        let texture_name = if mesh_renderer.mesh_path.contains("stone") {
+                            "stone"
+                        } else if mesh_renderer.mesh_path.contains("grass") {
+                            "grass"
+                        } else if mesh_renderer.mesh_path.contains("water") {
+                            "water"
+                        } else {
+                            "white" // Default white texture
+                        };
+
+                        // Get texture bind group
+                        let texture_handle = wgpu_state.texture_manager.get_handle(texture_name)
+                            .unwrap_or(wgpu_state.texture_manager.white_texture_handle());
+                        let texture_bind_group = wgpu_state.texture_manager.get_texture(texture_handle)
+                            .map(|tex| &tex.bind_group)
+                            .unwrap();
 
                         wgpu_state.renderer.render_mesh(
                             &mut encoder,
@@ -794,6 +842,7 @@ impl EditorApp {
                             gpu_mesh,
                             view_proj,
                             world_matrix,
+                            texture_bind_group,
                             first_mesh,
                         );
                         first_mesh = false;
