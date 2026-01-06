@@ -6,6 +6,7 @@ use rapier3d::na::{Quaternion, UnitQuaternion};
 use std::collections::HashMap;
 
 use engine_scene::entity::EntityId;
+use crate::joints::{JointConfig, JointHandle, JointManager};
 
 /// Physics world - manages all physics simulation
 pub struct PhysicsWorld {
@@ -25,6 +26,9 @@ pub struct PhysicsWorld {
     // Mapping between entity IDs and Rapier handles
     entity_to_body: HashMap<EntityId, RigidBodyHandle>,
     body_to_entity: HashMap<RigidBodyHandle, EntityId>,
+
+    // Joint management
+    joint_manager: JointManager,
 }
 
 impl PhysicsWorld {
@@ -44,6 +48,7 @@ impl PhysicsWorld {
             query_pipeline: QueryPipeline::new(),
             entity_to_body: HashMap::new(),
             body_to_entity: HashMap::new(),
+            joint_manager: JointManager::new(),
         }
     }
 
@@ -121,6 +126,56 @@ impl PhysicsWorld {
     /// Remove a collider
     pub fn remove_collider(&mut self, handle: ColliderHandle) {
         self.collider_set.remove(handle, &mut self.island_manager, &mut self.rigid_body_set, true);
+    }
+
+    /// Create a joint between two entities
+    pub fn create_joint(
+        &mut self,
+        entity1: EntityId,
+        entity2: EntityId,
+        config: JointConfig,
+    ) -> Option<JointHandle> {
+        let body1 = self.get_body_handle(entity1)?;
+        let body2 = self.get_body_handle(entity2)?;
+
+        let handle = self.joint_manager.add_joint(
+            &mut self.impulse_joint_set,
+            body1,
+            body2,
+            config,
+        );
+
+        Some(handle)
+    }
+
+    /// Remove a joint
+    pub fn remove_joint(&mut self, joint_handle: JointHandle) -> bool {
+        self.joint_manager.remove_joint(&mut self.impulse_joint_set, joint_handle)
+    }
+
+    /// Update joint motor
+    pub fn set_joint_motor(
+        &mut self,
+        joint_handle: JointHandle,
+        target_velocity: f32,
+        max_force: f32,
+    ) -> bool {
+        self.joint_manager.set_motor(
+            &mut self.impulse_joint_set,
+            joint_handle,
+            target_velocity,
+            max_force,
+        )
+    }
+
+    /// Get joint configuration
+    pub fn get_joint_config(&self, joint_handle: JointHandle) -> Option<&JointConfig> {
+        self.joint_manager.get_joint_config(joint_handle)
+    }
+
+    /// Get number of joints
+    pub fn joint_count(&self) -> usize {
+        self.joint_manager.joint_count()
     }
 }
 
