@@ -79,9 +79,11 @@ A modern, modular 3D game engine built from scratch in Rust with native desktop 
 - **MCP Server** (Model Context Protocol)
   - **Live file-based IPC connection**
   - Claude Code integration ready
-  - 8 MCP tools for engine control
+  - 17 MCP tools for engine control
   - JSON-RPC over stdio
   - Real-time communication with editor
+  - **AI music generation through MCP**
+  - Dynamic music creation via Claude/Codex
 
 - **Stable Diffusion Integration**
   - **AI-powered texture generation via ComfyUI**

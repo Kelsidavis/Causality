@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
-use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
 /// File-based IPC for communication with the editor
@@ -348,6 +347,79 @@ impl ToolRegistry {
                     "required": ["file_path"]
                 }
             }),
+            json!({
+                "name": "generate_music",
+                "description": "Generate music from a text description using AI. Claude should use external tools (like ACE-Step) to generate the actual audio, then return it to the game engine.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "Text description of the music to generate (e.g., 'Epic orchestral battle music with drums')"
+                        },
+                        "duration": {
+                            "type": "string",
+                            "description": "Duration: 'short' (~15s), 'medium' (~30s), 'long' (~60s), or 'extended' (~2min). Default: 'medium'"
+                        },
+                        "style": {
+                            "type": "string",
+                            "description": "Music style/genre: 'rock', 'pop', 'electronic', 'jazz', 'classical', 'cinematic', 'ambient', etc. Default: based on prompt"
+                        },
+                        "tempo": {
+                            "type": "integer",
+                            "description": "Tempo in BPM (e.g., 120). Optional."
+                        },
+                        "instrumental": {
+                            "type": "boolean",
+                            "description": "True for instrumental only (no vocals). Default: true"
+                        },
+                        "output_path": {
+                            "type": "string",
+                            "description": "Where to save the generated music file (e.g., 'assets/music/battle.wav')"
+                        }
+                    },
+                    "required": ["prompt", "output_path"]
+                }
+            }),
+            json!({
+                "name": "play_music",
+                "description": "Play a music file in the game engine",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the music file to play"
+                        },
+                        "loop": {
+                            "type": "boolean",
+                            "description": "Whether to loop the music. Default: true"
+                        },
+                        "volume": {
+                            "type": "number",
+                            "description": "Volume level (0.0 to 1.0). Default: 0.8"
+                        },
+                        "fade_in": {
+                            "type": "number",
+                            "description": "Fade in duration in seconds. Default: 0.0 (no fade)"
+                        }
+                    },
+                    "required": ["file_path"]
+                }
+            }),
+            json!({
+                "name": "stop_music",
+                "description": "Stop currently playing music",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "fade_out": {
+                            "type": "number",
+                            "description": "Fade out duration in seconds. Default: 0.0 (stop immediately)"
+                        }
+                    }
+                }
+            }),
         ]
     }
 
@@ -379,6 +451,9 @@ impl ToolRegistry {
             "generate_skybox" => self.generate_skybox(arguments),
             "save_scene" => self.save_scene(arguments),
             "load_scene" => self.load_scene(arguments),
+            "generate_music" => self.generate_music(arguments),
+            "play_music" => self.play_music(arguments),
+            "stop_music" => self.stop_music(arguments),
             _ => Err(anyhow!("Unknown tool: {}", tool_name)),
         }
     }
@@ -931,6 +1006,127 @@ impl ToolRegistry {
             let entity_count = result.get("entity_count").and_then(|v| v.as_u64()).unwrap_or(0);
             let scene_name = result.get("scene_name").and_then(|v| v.as_str()).unwrap_or("Unknown");
             format!("Successfully loaded scene '{}' from '{}' ({} entities)", scene_name, file_path, entity_count)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
+    }
+
+    fn generate_music(&self, args: &Value) -> Result<Value> {
+        let prompt = args
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing prompt"))?;
+
+        let output_path = args
+            .get("output_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing output_path"))?;
+
+        let duration = args
+            .get("duration")
+            .and_then(|v| v.as_str())
+            .unwrap_or("medium");
+
+        let style = args.get("style").and_then(|v| v.as_str());
+        let tempo = args.get("tempo").and_then(|v| v.as_u64());
+        let instrumental = args.get("instrumental").and_then(|v| v.as_bool()).unwrap_or(true);
+
+        log::info!(
+            "Music generation requested: '{}' -> '{}'",
+            prompt,
+            output_path
+        );
+
+        // Return a message for Claude to handle
+        // Claude will see this and know to use WebFetch or other tools to call ACE-Step
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": format!(
+                    "Music generation request received:\n\
+                     Prompt: {}\n\
+                     Duration: {}\n\
+                     Style: {}\n\
+                     Tempo: {}\n\
+                     Instrumental: {}\n\
+                     Output: {}\n\n\
+                     Please use the ACE-Step API at http://localhost:7865 to generate this music.\n\
+                     Then save the generated audio to '{}' and confirm completion.",
+                    prompt,
+                    duration,
+                    style.unwrap_or("auto"),
+                    tempo.map(|t| t.to_string()).unwrap_or_else(|| "auto".to_string()),
+                    instrumental,
+                    output_path,
+                    output_path
+                )
+            }]
+        }))
+    }
+
+    fn play_music(&self, args: &Value) -> Result<Value> {
+        let file_path = args
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing file_path"))?;
+
+        let loop_music = args.get("loop").and_then(|v| v.as_bool()).unwrap_or(true);
+        let volume = args.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.8);
+        let fade_in = args.get("fade_in").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        log::info!("Playing music: '{}' (loop: {}, volume: {})", file_path, loop_music, volume);
+
+        let result = self.send_command("play_music", json!({
+            "file_path": file_path,
+            "loop": loop_music,
+            "volume": volume,
+            "fade_in": fade_in,
+        }))?;
+
+        let success = result.get("playing").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            format!("Now playing: '{}' (volume: {}, loop: {})", file_path, volume, loop_music)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
+    }
+
+    fn stop_music(&self, args: &Value) -> Result<Value> {
+        let fade_out = args.get("fade_out").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        log::info!("Stopping music (fade_out: {}s)", fade_out);
+
+        let result = self.send_command("stop_music", json!({
+            "fade_out": fade_out,
+        }))?;
+
+        let success = result.get("stopped").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            if fade_out > 0.0 {
+                format!("Music stopping (fading out over {}s)", fade_out)
+            } else {
+                "Music stopped".to_string()
+            }
         } else {
             result.get("error")
                 .and_then(|v| v.as_str())

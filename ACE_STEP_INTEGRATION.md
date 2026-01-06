@@ -16,17 +16,40 @@ ACE-Step is a foundation model for music generation that:
 The integration consists of:
 
 1. **ACE-Step Service** (Python) - Runs separately, provides HTTP API
-2. **engine-ai-music** (Rust) - Client library for the game engine
-3. **Game Engine** - Uses the client library to generate music dynamically
+2. **MCP Server** (Rust) - Model Context Protocol server
+3. **Claude/AI** - Handles music generation requests
+4. **Game Engine** - Sends requests via MCP
 
 ```
-┌─────────────────┐         HTTP API          ┌──────────────────┐
-│  Game Engine    │ ◄─────────────────────────► │  ACE-Step API   │
-│  (Rust)         │                             │  (Python)       │
-│                 │    Music Generation         │                 │
-│ engine-ai-music │    Requests & Audio Data    │ Model Inference │
-└─────────────────┘                             └──────────────────┘
+┌──────────────┐    MCP      ┌────────────┐   HTTP   ┌──────────────┐
+│ Game Engine  │────────────►│ MCP Server │─────────►│   Claude     │
+│              │             │            │          │              │
+│              │             │ 17 Tools   │          │ WebFetch/AI  │
+│              │             │  including │          │              │
+│              │             │  generate_ │          │              │
+│              │             │   music    │          │              │
+└──────────────┘             └────────────┘          └──────┬───────┘
+                                                            │
+                                                            │ HTTP
+                                                            ▼
+                                                     ┌─────────────┐
+                                                     │  ACE-Step   │
+                                                     │  API Server │
+                                                     │ (localhost) │
+                                                     └─────────────┘
 ```
+
+**Recommended Approach (MCP):**
+- Game engine sends MCP request for music
+- Claude receives request through MCP server
+- Claude uses WebFetch to call ACE-Step API
+- Claude saves generated audio and confirms to game
+
+**Alternative (Direct):**
+- Use `engine-ai-music` crate for direct API calls
+- More control but tighter coupling
+
+See [MCP_MUSIC_GENERATION.md](MCP_MUSIC_GENERATION.md) for the MCP approach.
 
 ## Quick Start
 
