@@ -8,6 +8,7 @@ members = [
     "crates/engine-audio",
     "crates/engine-particles",
     "crates/engine-scene",
+    "crates/engine-ui",
     "crates/engine-editor",
     "crates/engine-mcp-server",
 ]
