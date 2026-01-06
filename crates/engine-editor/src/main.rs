@@ -149,8 +149,8 @@ impl EditorApp {
         // Load AI-generated textures from Stable Diffusion
         log::info!("Loading AI-generated textures...");
 
-        // Load stone texture for castle walls
-        if let Ok(stone_tex) = Texture::from_file("generated_assets/textures/generated_85b14ace.png") {
+        // Load stone texture for castle walls (1024x1024 high-res with variation)
+        if let Ok(stone_tex) = Texture::from_file("generated_assets/textures/generated_c6bc0825.png") {
             texture_manager.upload_texture(&renderer.device, &renderer.queue, "stone".to_string(), &stone_tex);
             log::info!("Loaded stone texture: {}x{}", stone_tex.width, stone_tex.height);
         } else {
@@ -212,12 +212,12 @@ impl EditorApp {
         entity_ids.push(countryside_id);
 
         // === MOAT SYSTEM ===
-        // Moat water basin - square ring around castle (scaled down)
+        // Moat water basin - square ring around castle at ground level
         let moat_positions = vec![
-            ("Moat North", Vec3::new(0.0, -0.8, -4.5), Vec3::new(10.0, 0.8, 1.0)),
-            ("Moat South", Vec3::new(0.0, -0.8, 4.5), Vec3::new(10.0, 0.8, 1.0)),
-            ("Moat East", Vec3::new(4.5, -0.8, 0.0), Vec3::new(1.0, 0.8, 8.0)),
-            ("Moat West", Vec3::new(-4.5, -0.8, 0.0), Vec3::new(1.0, 0.8, 8.0)),
+            ("Moat North", Vec3::new(0.0, 0.2, -4.5), Vec3::new(10.0, 0.5, 1.0)),
+            ("Moat South", Vec3::new(0.0, 0.2, 4.5), Vec3::new(10.0, 0.5, 1.0)),
+            ("Moat East", Vec3::new(4.5, 0.2, 0.0), Vec3::new(1.0, 0.5, 8.0)),
+            ("Moat West", Vec3::new(-4.5, 0.2, 0.0), Vec3::new(1.0, 0.5, 8.0)),
         ];
 
         for (name, pos, scale) in moat_positions {
