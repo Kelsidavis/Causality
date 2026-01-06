@@ -3,3 +3,4 @@
 pub mod app;
 pub mod time;
 pub mod input;
+pub mod builder;
