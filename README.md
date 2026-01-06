@@ -90,6 +90,14 @@ A modern, modular 3D game engine built from scratch in Rust with native desktop 
   - Network-wide serving for collaborative workflows
   - Generated assets automatically loaded and rendered
 
+- **ACE-Step Music Generation**
+  - **AI-powered music generation from text descriptions**
+  - Real-time music synthesis (34.48× on RTX 4090)
+  - 19 language support for prompts
+  - Dynamic soundtrack creation based on game state
+  - Music variations and extensions
+  - HTTP API integration with game engine
+
 ### Game UI Framework
 
 - **Widget System**

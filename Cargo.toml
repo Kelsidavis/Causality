@@ -13,6 +13,7 @@ members = [
     "crates/engine-editor",
     "crates/engine-mcp-server",
     "crates/engine-ai-assets",
+    "crates/engine-ai-music",
 ]
 resolver = "2"
 
