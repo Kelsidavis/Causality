@@ -1,8 +1,10 @@
 // API clients for different Stable Diffusion services
 
 pub mod huggingface;
+pub mod local;
 
 pub use huggingface::HuggingFaceClient;
+pub use local::LocalClient;
 
 use serde::{Deserialize, Serialize};
 

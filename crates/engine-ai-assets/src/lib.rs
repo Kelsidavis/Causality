@@ -11,7 +11,7 @@ pub mod prompt;
 
 pub use generator::{AssetGenerator, TextureGenerationRequest, GeneratedAsset};
 pub use cache::{AssetCache, AssetMetadata};
-pub use api::ApiClient;
+pub use api::{ApiClient, LocalClient, HuggingFaceClient};
 pub use models::AiModel;
 pub use prompt::{PromptOptimizer, QualityLevel};
 
