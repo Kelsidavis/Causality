@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use engine_scene::Scene;
+use engine_scene::components::MeshRenderer;
 use engine_scripting::Script;
+use glam::Vec3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcCommand {
@@ -341,14 +343,58 @@ impl FileIpcHandler {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
 
-                log::warn!("Model loading via IPC not yet fully implemented for entity '{}'", entity_name);
+                let model_path = args
+                    .get("model_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-                IpcResponse {
-                    id,
-                    success: false,
-                    result: json!({
-                        "error": "Model loading not yet implemented".to_string()
-                    }),
+                let position = args
+                    .get("position")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        Vec3::new(
+                            arr.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                            arr.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                            arr.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                        )
+                    })
+                    .unwrap_or(Vec3::ZERO);
+
+                // Create new entity with model
+                let entity_id = scene.create_entity(entity_name.to_string());
+
+                if let Some(entity) = scene.get_entity_mut(entity_id) {
+                    // Set position
+                    entity.transform.position = position;
+
+                    // Add mesh renderer component
+                    let mesh_renderer = MeshRenderer {
+                        mesh_path: model_path.to_string(),
+                        material_path: None,
+                    };
+                    entity.add_component(mesh_renderer);
+
+                    log::info!("Loaded model '{}' as entity '{}' at position {:?}",
+                        model_path, entity_name, position);
+
+                    IpcResponse {
+                        id,
+                        success: true,
+                        result: json!({
+                            "model_loaded": true,
+                            "entity_name": entity_name,
+                            "model_path": model_path,
+                            "position": [position.x, position.y, position.z]
+                        }),
+                    }
+                } else {
+                    IpcResponse {
+                        id,
+                        success: false,
+                        result: json!({
+                            "error": format!("Failed to create entity '{}'", entity_name)
+                        }),
+                    }
                 }
             }
             _ => IpcResponse {

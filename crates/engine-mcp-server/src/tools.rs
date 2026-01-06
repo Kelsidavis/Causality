@@ -464,33 +464,45 @@ impl ToolRegistry {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing model_path"))?;
 
+        let position = args
+            .get("position")
+            .and_then(|v| v.as_array())
+            .cloned();
+
         log::info!(
             "Loading model '{}' as entity '{}'",
             model_path,
             entity_name
         );
 
-        let result = self.send_command("load_model", json!({
+        let mut load_args = json!({
             "entity_name": entity_name,
             "model_path": model_path,
-        }))?;
+        });
 
-        let error = result.get("error").and_then(|v| v.as_str());
-        if error.is_some() {
-            Ok(json!({
-                "content": [{
-                    "type": "text",
-                    "text": format!("Error: {}", error.unwrap())
-                }]
-            }))
-        } else {
-            Ok(json!({
-                "content": [{
-                    "type": "text",
-                    "text": format!("Loaded model '{}' as entity '{}'", model_path, entity_name)
-                }]
-            }))
+        if let Some(pos) = position {
+            load_args["position"] = serde_json::Value::Array(pos);
         }
+
+        let result = self.send_command("load_model", load_args)?;
+
+        let success = result.get("model_loaded").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            let pos = result.get("position").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            format!("Successfully loaded model '{}' as entity '{}' at position {:?}", model_path, entity_name, pos)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
     }
 
     fn get_scene_info(&self, _args: &Value) -> Result<Value> {
