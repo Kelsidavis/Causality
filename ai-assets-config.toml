@@ -1,0 +1,66 @@
+# Causality Engine - AI Assets Configuration
+# Configure Stable Diffusion and asset generation settings
+
+[ai_service]
+# Service type: "local" or "huggingface"
+service_type = "local"
+
+# For local service
+local_url = "http://localhost:7860"
+local_timeout_seconds = 300
+
+# For Hugging Face service
+# huggingface_api_key = "your_hf_token_here"  # or set HF_API_KEY env var
+# huggingface_model = "stabilityai/stable-diffusion-2-1"
+
+[cache]
+# Directory for cached generated assets
+cache_dir = "./generated_assets"
+
+# Enable asset caching
+enable_cache = true
+
+[generation]
+# Default quality level: "fast", "standard", "high", "best"
+default_quality = "high"
+
+# Enable 4K upscaling (may require additional server support)
+upscaler_enabled = true
+
+# Default inference steps per quality level
+steps_fast = 20
+steps_standard = 35
+steps_high = 50
+steps_best = 75
+
+# Default guidance scales per quality level
+guidance_fast = 5.0
+guidance_standard = 7.0
+guidance_high = 7.5
+guidance_best = 8.5
+
+[texture_generation]
+# Default texture dimensions (must be multiples of 64)
+default_width = 512
+default_height = 512
+
+# Negative prompt for texture generation
+negative_prompt = "blurry, low quality, distorted, ugly, watermark, artifacts"
+
+[skybox_generation]
+# Skybox dimensions (must be multiples of 64)
+width = 2048
+height = 1024
+
+# Negative prompt for skybox generation
+negative_prompt = "distorted, warped, artifacts, watermark, seams"
+
+[performance]
+# Number of worker threads for generation
+worker_threads = 2
+
+# Timeout for generation operations in seconds
+generation_timeout = 600
+
+# Maximum concurrent generation jobs
+max_concurrent_jobs = 1

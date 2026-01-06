@@ -1123,6 +1123,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "egui_code_editor",
+ "engine-ai-assets",
  "engine-assets",
  "engine-audio",
  "engine-core",
@@ -1136,6 +1137,7 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
+ "tokio",
  "wgpu",
  "winit",
 ]

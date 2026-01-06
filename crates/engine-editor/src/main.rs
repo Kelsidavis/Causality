@@ -257,10 +257,24 @@ fn update(ctx) {
 
         // Create camera uniform buffer and bind group layout for skybox
         use glam::Mat4;
-        let camera_uniforms = [camera.view_projection_matrix().to_cols_array_2d()];
+        let view_proj = camera.view_projection_matrix();
+        let view_proj_inverse = view_proj.inverse();
+
+        #[repr(C)]
+        #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+        struct CameraUniforms {
+            view_proj: [[f32; 4]; 4],
+            view_proj_inverse: [[f32; 4]; 4],
+        }
+
+        let camera_uniforms = CameraUniforms {
+            view_proj: view_proj.to_cols_array_2d(),
+            view_proj_inverse: view_proj_inverse.to_cols_array_2d(),
+        };
+
         let camera_uniform_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Uniform Buffer"),
-            contents: bytemuck::cast_slice(&camera_uniforms),
+            contents: bytemuck::cast_slice(&[camera_uniforms]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -529,13 +543,25 @@ fn update(ctx) {
         )?;
 
         let view_proj = camera.view_projection_matrix();
+        let view_proj_inverse = view_proj.inverse();
 
         // Update camera uniform buffer for skybox
-        let camera_uniforms = [view_proj.to_cols_array_2d()];
+        #[repr(C)]
+        #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+        struct CameraUniforms {
+            view_proj: [[f32; 4]; 4],
+            view_proj_inverse: [[f32; 4]; 4],
+        }
+
+        let camera_uniforms = CameraUniforms {
+            view_proj: view_proj.to_cols_array_2d(),
+            view_proj_inverse: view_proj_inverse.to_cols_array_2d(),
+        };
+
         wgpu_state.renderer.queue.write_buffer(
             &wgpu_state.camera_uniform_buffer,
             0,
-            bytemuck::cast_slice(&camera_uniforms),
+            bytemuck::cast_slice(&[camera_uniforms]),
         );
 
         // Render shadow map (depth pass from light's perspective)

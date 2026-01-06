@@ -9,6 +9,7 @@ use engine_scene::Scene;
 use engine_scene::components::MeshRenderer;
 use engine_scripting::Script;
 use engine_physics::{RigidBody, RigidBodyType, Collider, ColliderShape};
+use engine_ai_assets::{AssetGenerator, AssetCache, TextureGenerationRequest, LocalClient, AiAssetConfig};
 use glam::Vec3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -536,6 +537,142 @@ impl FileIpcHandler {
                     }
                 }
             }
+            "generate_texture" => {
+                let prompt = args
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("texture")
+                    .to_string();
+
+                let width = args
+                    .get("width")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(512) as u32;
+
+                let height = args
+                    .get("height")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(512) as u32;
+
+                let quality = args
+                    .get("quality")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("high")
+                    .to_string();
+
+                let seed = args.get("seed").and_then(|v| v.as_u64());
+
+                log::info!(
+                    "Generating texture '{}' ({}x{}, quality: {})",
+                    prompt,
+                    width,
+                    height,
+                    quality
+                );
+
+                // Clone for use after spawn
+                let prompt_for_response = prompt.clone();
+
+                // Try to generate texture using local Stable Diffusion service
+                match std::thread::spawn(move || {
+                    generate_texture_blocking(&prompt, width, height, &quality, seed)
+                }).join() {
+                    Ok(Ok((asset_id, file_path))) => {
+                        IpcResponse {
+                            id,
+                            success: true,
+                            result: json!({
+                                "generated": true,
+                                "asset_id": asset_id,
+                                "file_path": file_path,
+                                "prompt": prompt_for_response,
+                                "dimensions": [width, height]
+                            }),
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        log::error!("Texture generation failed: {}", e);
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "generated": false,
+                                "error": format!("Texture generation failed: {}", e)
+                            }),
+                        }
+                    }
+                    Err(_) => {
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "generated": false,
+                                "error": "Failed to spawn generation thread"
+                            }),
+                        }
+                    }
+                }
+            }
+            "generate_skybox" => {
+                let prompt = args
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("skybox")
+                    .to_string();
+
+                let quality = args
+                    .get("quality")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("high")
+                    .to_string();
+
+                let seed = args.get("seed").and_then(|v| v.as_u64());
+
+                log::info!("Generating skybox '{}' (quality: {})", prompt, quality);
+
+                // Clone for use after spawn
+                let prompt_for_response = prompt.clone();
+
+                // Try to generate skybox using local Stable Diffusion service
+                match std::thread::spawn(move || {
+                    generate_skybox_blocking(&prompt, &quality, seed)
+                }).join() {
+                    Ok(Ok((asset_id, file_path))) => {
+                        IpcResponse {
+                            id,
+                            success: true,
+                            result: json!({
+                                "generated": true,
+                                "asset_id": asset_id,
+                                "file_path": file_path,
+                                "prompt": prompt_for_response,
+                                "dimensions": [2048, 1024]
+                            }),
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        log::error!("Skybox generation failed: {}", e);
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "generated": false,
+                                "error": format!("Skybox generation failed: {}", e)
+                            }),
+                        }
+                    }
+                    Err(_) => {
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "generated": false,
+                                "error": "Failed to spawn generation thread"
+                            }),
+                        }
+                    }
+                }
+            }
             _ => IpcResponse {
                 id,
                 success: false,
@@ -545,4 +682,67 @@ impl FileIpcHandler {
             },
         }
     }
+
+}
+
+fn generate_texture_blocking(
+    prompt: &str,
+    width: u32,
+    height: u32,
+    quality: &str,
+    seed: Option<u64>,
+) -> Result<(String, String)> {
+    // Get or create asset generator
+    let local_client = LocalClient::localhost(7860, 300); // Default Stable Diffusion web UI port
+    let cache_dir = "./generated_assets";
+    let cache = AssetCache::new(cache_dir)?;
+    let generator = AssetGenerator::new(Box::new(local_client), cache)?;
+
+    // Create generation request
+    let request = TextureGenerationRequest {
+        prompt: prompt.to_string(),
+        negative_prompt: Some("blurry, low quality, distorted, ugly".to_string()),
+        width,
+        height,
+        steps: match quality {
+            "fast" => 20,
+            "standard" => 35,
+            "high" => 50,
+            "best" => 75,
+            _ => 50,
+        },
+        guidance_scale: match quality {
+            "fast" => 5.0,
+            "standard" => 7.0,
+            "high" => 7.5,
+            "best" => 8.5,
+            _ => 7.5,
+        },
+        seed,
+        use_cache: true,
+    };
+
+    // Run async generation in blocking context
+    let rt = tokio::runtime::Runtime::new()?;
+    let asset = rt.block_on(generator.generate_texture(&request))?;
+
+    Ok((asset.metadata.id.clone(), asset.metadata.file_path.clone()))
+}
+
+fn generate_skybox_blocking(
+    prompt: &str,
+    quality: &str,
+    seed: Option<u64>,
+) -> Result<(String, String)> {
+    // Get or create asset generator
+    let local_client = LocalClient::localhost(7860, 300); // Default Stable Diffusion web UI port
+    let cache_dir = "./generated_assets";
+    let cache = AssetCache::new(cache_dir)?;
+    let generator = AssetGenerator::new(Box::new(local_client), cache)?;
+
+    // Run async generation in blocking context
+    let rt = tokio::runtime::Runtime::new()?;
+    let asset = rt.block_on(generator.generate_skybox(prompt, seed))?;
+
+    Ok((asset.metadata.id.clone(), asset.metadata.file_path.clone()))
 }
