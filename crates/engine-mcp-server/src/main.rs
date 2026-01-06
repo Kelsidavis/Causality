@@ -1,4 +1,4 @@
-// MCP Server for Game Engine - Phase 6: MCP Integration
+// Causality Engine - MCP Server
 // Implements Model Context Protocol for Claude Code integration
 
 mod protocol;
@@ -11,7 +11,7 @@ use tools::ToolRegistry;
 
 fn main() -> Result<()> {
     env_logger::init();
-    log::info!("Game Engine MCP Server starting...");
+    log::info!("Causality Engine MCP Server starting...");
 
     let mut tool_registry = ToolRegistry::new();
     let stdin = io::stdin();
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
                     serde_json::json!({
                         "protocolVersion": "2024-11-05",
                         "serverInfo": {
-                            "name": "game-engine",
+                            "name": "causality-engine",
                             "version": "0.1.0"
                         },
                         "capabilities": {

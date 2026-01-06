@@ -1,4 +1,4 @@
-// Game engine editor - Phase 7: Hot Reload
+// Causality Engine - Editor
 
 mod ui;
 pub mod ipc;
@@ -571,7 +571,7 @@ impl ApplicationHandler for EditorApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Game Engine Editor - Phase 7: Hot Reload")
+                .with_title("Causality Engine - Editor")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             match event_loop.create_window(window_attributes) {
@@ -679,7 +679,7 @@ impl ApplicationHandler for EditorApp {
 
 fn main() -> Result<()> {
     env_logger::init();
-    log::info!("Game Engine Editor starting...");
+    log::info!("Causality Engine - Editor starting...");
 
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
