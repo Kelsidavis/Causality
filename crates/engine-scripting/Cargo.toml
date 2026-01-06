@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 engine-core = { path = "../engine-core" }
 engine-scene = { path = "../engine-scene" }
+engine-input = { path = "../engine-input" }
 glam = { workspace = true }
 rhai = { workspace = true }
 anyhow = { workspace = true }
