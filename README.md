@@ -128,14 +128,23 @@ The Causality Engine includes a fully functional MCP server that allows Claude C
 
 ### Available MCP Tools
 
-1. **create_entity** - Create new entities with position
-2. **set_transform** - Modify entity transforms
-3. **list_entities** - Query all entities in the scene
-4. **get_entity_info** - Get detailed entity information
-5. **delete_entity** - Remove entities from the scene
-6. **add_script** - Attach Rhai scripts to entities
-7. **load_model** - Load GLTF models into the scene
-8. **get_scene_info** - Query scene metadata and statistics
+**Core Operations**:
+1. **create_entity** - Create new entities with optional position
+2. **list_entities** - Query all entities in the scene
+3. **get_entity_info** - Get detailed entity information (position, rotation, scale)
+4. **delete_entity** - Remove entities from the scene
+5. **set_transform** - Modify entity position and scale
+6. **get_scene_info** - Query scene metadata and statistics
+
+**Asset & Model Loading**:
+7. **load_model** - Load GLTF 3D models and create entities with them
+8. **add_script** - Attach Rhai scripts to entities for custom behavior
+
+**Physics Components**:
+9. **add_rigidbody** - Add physics simulation (dynamic, kinematic, static)
+10. **add_collider** - Add collision shapes (box, sphere, capsule)
+
+All tools support real-time scene control with full error handling and feedback.
 
 ### MCP Configuration
 
@@ -151,7 +160,7 @@ Add to your Claude Code MCP config:
 }
 ```
 
-See [MCP_GUIDE.md](MCP_GUIDE.md) for complete documentation.
+See [MCP_TOOLS_GUIDE.md](MCP_TOOLS_GUIDE.md) for complete tool documentation and [MCP_GUIDE.md](MCP_GUIDE.md) for configuration details.
 
 ## Project Structure
 
