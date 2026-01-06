@@ -320,6 +320,34 @@ impl ToolRegistry {
                     "required": ["prompt"]
                 }
             }),
+            json!({
+                "name": "save_scene",
+                "description": "Save the current scene to a file",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to save the scene file (e.g., 'assets/scenes/my_scene.ron')"
+                        }
+                    },
+                    "required": ["file_path"]
+                }
+            }),
+            json!({
+                "name": "load_scene",
+                "description": "Load a scene from a file",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the scene file to load (e.g., 'assets/scenes/castle.ron')"
+                        }
+                    },
+                    "required": ["file_path"]
+                }
+            }),
         ]
     }
 
@@ -349,6 +377,8 @@ impl ToolRegistry {
             "add_collider" => self.add_collider(arguments),
             "generate_texture" => self.generate_texture(arguments),
             "generate_skybox" => self.generate_skybox(arguments),
+            "save_scene" => self.save_scene(arguments),
+            "load_scene" => self.load_scene(arguments),
             _ => Err(anyhow!("Unknown tool: {}", tool_name)),
         }
     }
@@ -838,6 +868,69 @@ impl ToolRegistry {
             } else {
                 format!("Successfully generated skybox '{}'", prompt)
             }
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
+    }
+
+    fn save_scene(&self, args: &Value) -> Result<Value> {
+        let file_path = args
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing file_path"))?;
+
+        log::info!("Saving scene to '{}'", file_path);
+
+        let result = self.send_command("save_scene", json!({
+            "file_path": file_path,
+        }))?;
+
+        let success = result.get("saved").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            let entity_count = result.get("entity_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            format!("Successfully saved scene to '{}' ({} entities)", file_path, entity_count)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
+    }
+
+    fn load_scene(&self, args: &Value) -> Result<Value> {
+        let file_path = args
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing file_path"))?;
+
+        log::info!("Loading scene from '{}'", file_path);
+
+        let result = self.send_command("load_scene", json!({
+            "file_path": file_path,
+        }))?;
+
+        let success = result.get("loaded").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            let entity_count = result.get("entity_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            let scene_name = result.get("scene_name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            format!("Successfully loaded scene '{}' from '{}' ({} entities)", scene_name, file_path, entity_count)
         } else {
             result.get("error")
                 .and_then(|v| v.as_str())
