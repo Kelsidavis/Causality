@@ -134,100 +134,198 @@ impl EditorApp {
         let asset_manager = AssetManager::new(std::env::current_dir()?.join("assets"));
         let mut mesh_manager = MeshManager::new();
 
-        // Create demo scene
-        let mut scene = Scene::new("Demo Scene".to_string());
+        // Create lifelike castle and countryside scene
+        // AI-generated textures: castle_wall (generated_40ca92c1.png), grass (generated_aa0d9078.png), water (generated_2cbaf2cc.png)
+        let mut scene = Scene::new("Castle and Countryside".to_string());
 
-        // Entity 1: Dynamic cube that will fall
+        // Prepare meshes
         let cube_mesh = Mesh::cube();
         let cube_vertices = convert_mesh_to_gpu(&cube_mesh);
         mesh_manager.upload_mesh(&renderer.device, "cube".to_string(), &cube_vertices, &cube_mesh.indices);
 
-        let cube_id = scene.create_entity("Falling Cube".to_string());
-        if let Some(entity) = scene.get_entity_mut(cube_id) {
-            entity.transform = Transform {
-                position: Vec3::new(0.0, 5.0, 0.0), // Start high in the air
-                rotation: Quat::IDENTITY,
-                scale: Vec3::ONE,
-            };
-            entity.add_component(MeshRenderer {
-                mesh_path: "cube".to_string(),
-                material_path: None,
-            });
-            // Add physics - dynamic rigid body with box collider
-            entity.add_component(RigidBody::dynamic(1.0));
-            entity.add_component(Collider::box_collider(Vec3::splat(0.5))); // Half extents = 0.5 (full size 1.0)
-
-            // Add script - slow rotation while falling
-            entity.add_component(Script::new(r#"
-fn update(ctx) {
-    // Rotate slowly around Y axis
-    let rotation_speed = 1.0;
-    let angle = ctx.dt * rotation_speed;
-    let rotation_delta = quat_from_rotation_y(angle);
-    ctx.rotation = ctx.rotation * rotation_delta;
-    ctx
-}
-"#.to_string()));
-        }
-
-        // Entity 2: Static ground plane
-        let plane_mesh = Mesh::plane(10.0);
+        let plane_mesh = Mesh::plane(1.0);
         let plane_vertices = convert_mesh_to_gpu(&plane_mesh);
         mesh_manager.upload_mesh(&renderer.device, "plane".to_string(), &plane_vertices, &plane_mesh.indices);
 
-        let plane_id = scene.create_entity("Ground Plane".to_string());
-        if let Some(entity) = scene.get_entity_mut(plane_id) {
+        let mut entity_ids = Vec::new();
+
+        // === COUNTRYSIDE TERRAIN ===
+        // Large countryside ground
+        let countryside_id = scene.create_entity("Countryside Ground".to_string());
+        if let Some(entity) = scene.get_entity_mut(countryside_id) {
             entity.transform = Transform {
-                position: Vec3::new(0.0, 0.0, 0.0), // Ground at y=0
+                position: Vec3::new(0.0, -0.2, 0.0),
                 rotation: Quat::IDENTITY,
-                scale: Vec3::new(1.0, 1.0, 1.0),
+                scale: Vec3::new(50.0, 0.2, 50.0), // Vast countryside
             };
             entity.add_component(MeshRenderer {
-                mesh_path: "plane".to_string(),
-                material_path: None,
+                mesh_path: "cube".to_string(),
+                material_path: Some("generated_aa0d9078.png".to_string()), // Grass texture
             });
-            // Add physics - static rigid body with box collider (thin ground)
             entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(5.0, 0.1, 5.0))); // Thin platform
+            entity.add_component(Collider::box_collider(Vec3::new(25.0, 0.1, 25.0)));
+        }
+        entity_ids.push(countryside_id);
+
+        // === MOAT SYSTEM ===
+        // Moat water basin - square ring around castle
+        let moat_positions = vec![
+            ("Moat North", Vec3::new(0.0, -1.0, -8.0), Vec3::new(18.0, 1.5, 2.0)),
+            ("Moat South", Vec3::new(0.0, -1.0, 8.0), Vec3::new(18.0, 1.5, 2.0)),
+            ("Moat East", Vec3::new(8.0, -1.0, 0.0), Vec3::new(2.0, 1.5, 14.0)),
+            ("Moat West", Vec3::new(-8.0, -1.0, 0.0), Vec3::new(2.0, 1.5, 14.0)),
+        ];
+
+        for (name, pos, scale) in moat_positions {
+            let moat_id = scene.create_entity(name.to_string());
+            if let Some(entity) = scene.get_entity_mut(moat_id) {
+                entity.transform = Transform {
+                    position: pos,
+                    rotation: Quat::IDENTITY,
+                    scale,
+                };
+                entity.add_component(MeshRenderer {
+                    mesh_path: "cube".to_string(),
+                    material_path: Some("generated_2cbaf2cc.png".to_string()), // Water texture
+                });
+                entity.add_component(RigidBody::static_body());
+                entity.add_component(Collider::box_collider(scale / 2.0));
+            }
+            entity_ids.push(moat_id);
         }
 
-        // Entity 3: Small dynamic cube that will also fall
-        let small_cube_mesh = Mesh::cube();
-        let small_cube_vertices = convert_mesh_to_gpu(&small_cube_mesh);
-        mesh_manager.upload_mesh(&renderer.device, "small_cube".to_string(), &small_cube_vertices, &small_cube_mesh.indices);
+        // === CASTLE WALLS (CURTAIN WALLS) ===
+        let castle_walls = vec![
+            ("Castle Wall North", Vec3::new(0.0, 2.5, -6.0), Vec3::new(12.0, 5.0, 0.6)),
+            ("Castle Wall South", Vec3::new(0.0, 2.5, 6.0), Vec3::new(12.0, 5.0, 0.6)),
+            ("Castle Wall East", Vec3::new(6.0, 2.5, 0.0), Vec3::new(0.6, 5.0, 12.0)),
+            ("Castle Wall West", Vec3::new(-6.0, 2.5, 0.0), Vec3::new(0.6, 5.0, 12.0)),
+        ];
 
-        let small_cube_id = scene.create_entity("Falling Small Cube".to_string());
-        if let Some(entity) = scene.get_entity_mut(small_cube_id) {
+        for (name, pos, scale) in castle_walls {
+            let wall_id = scene.create_entity(name.to_string());
+            if let Some(entity) = scene.get_entity_mut(wall_id) {
+                entity.transform = Transform {
+                    position: pos,
+                    rotation: Quat::IDENTITY,
+                    scale,
+                };
+                entity.add_component(MeshRenderer {
+                    mesh_path: "cube".to_string(),
+                    material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
+                });
+                entity.add_component(RigidBody::static_body());
+                entity.add_component(Collider::box_collider(scale / 2.0));
+            }
+            entity_ids.push(wall_id);
+        }
+
+        // === CORNER TOWERS (DEFENSIVE TURRETS) ===
+        let corner_towers = vec![
+            ("Tower NE", Vec3::new(6.0, 3.5, -6.0)),
+            ("Tower SE", Vec3::new(6.0, 3.5, 6.0)),
+            ("Tower NW", Vec3::new(-6.0, 3.5, -6.0)),
+            ("Tower SW", Vec3::new(-6.0, 3.5, 6.0)),
+        ];
+
+        for (name, pos) in corner_towers {
+            let tower_id = scene.create_entity(name.to_string());
+            if let Some(entity) = scene.get_entity_mut(tower_id) {
+                entity.transform = Transform {
+                    position: pos,
+                    rotation: Quat::IDENTITY,
+                    scale: Vec3::new(1.5, 7.0, 1.5), // Tall defensive towers
+                };
+                entity.add_component(MeshRenderer {
+                    mesh_path: "cube".to_string(),
+                    material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
+                });
+                entity.add_component(RigidBody::static_body());
+                entity.add_component(Collider::box_collider(Vec3::new(0.75, 3.5, 0.75)));
+            }
+            entity_ids.push(tower_id);
+        }
+
+        // === CENTRAL KEEP (MAIN FORTRESS) ===
+        let keep_id = scene.create_entity("Castle Keep".to_string());
+        if let Some(entity) = scene.get_entity_mut(keep_id) {
             entity.transform = Transform {
-                position: Vec3::new(2.0, 8.0, 0.0), // Start higher and offset
+                position: Vec3::new(0.0, 5.0, 0.0),
                 rotation: Quat::IDENTITY,
-                scale: Vec3::splat(0.5), // Make it smaller
+                scale: Vec3::new(3.0, 10.0, 3.0), // Imposing central tower
             };
             entity.add_component(MeshRenderer {
-                mesh_path: "small_cube".to_string(),
-                material_path: None,
+                mesh_path: "cube".to_string(),
+                material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
             });
-            // Add physics - dynamic rigid body with smaller box collider
-            entity.add_component(RigidBody::dynamic(0.5)); // Lighter mass
-            entity.add_component(Collider::box_collider(Vec3::splat(0.25)).with_restitution(0.3)); // Half of 0.5 scale, bouncy
+            entity.add_component(RigidBody::static_body());
+            entity.add_component(Collider::box_collider(Vec3::new(1.5, 5.0, 1.5)));
+        }
+        entity_ids.push(keep_id);
 
-            // Add script - spinning on multiple axes
-            entity.add_component(Script::new(r#"
-fn update(ctx) {
-    // Rotate on multiple axes for interesting motion
-    let spin_speed = 2.0;
-    let angle = ctx.dt * spin_speed;
-    let rot_x = quat_from_rotation_x(angle * 0.7);
-    let rot_y = quat_from_rotation_y(angle);
-    let rot_z = quat_from_rotation_z(angle * 0.5);
-    ctx.rotation = ctx.rotation * rot_x * rot_y * rot_z;
-    ctx
-}
-"#.to_string()));
+        // === GATEHOUSE ===
+        let gatehouse_id = scene.create_entity("Gatehouse".to_string());
+        if let Some(entity) = scene.get_entity_mut(gatehouse_id) {
+            entity.transform = Transform {
+                position: Vec3::new(0.0, 2.0, 6.5), // Front of south wall
+                rotation: Quat::IDENTITY,
+                scale: Vec3::new(2.5, 4.0, 1.5),
+            };
+            entity.add_component(MeshRenderer {
+                mesh_path: "cube".to_string(),
+                material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
+            });
+            entity.add_component(RigidBody::static_body());
+            entity.add_component(Collider::box_collider(Vec3::new(1.25, 2.0, 0.75)));
+        }
+        entity_ids.push(gatehouse_id);
+
+        // === COURTYARD DETAILS ===
+        // Courtyard ground
+        let courtyard_id = scene.create_entity("Courtyard".to_string());
+        if let Some(entity) = scene.get_entity_mut(courtyard_id) {
+            entity.transform = Transform {
+                position: Vec3::new(0.0, 0.0, 0.0),
+                rotation: Quat::IDENTITY,
+                scale: Vec3::new(11.0, 0.1, 11.0),
+            };
+            entity.add_component(MeshRenderer {
+                mesh_path: "cube".to_string(),
+                material_path: Some("generated_40ca92c1.png".to_string()), // Stone courtyard
+            });
+            entity.add_component(RigidBody::static_body());
+            entity.add_component(Collider::box_collider(Vec3::new(5.5, 0.05, 5.5)));
+        }
+        entity_ids.push(courtyard_id);
+
+        // === COUNTRYSIDE DETAILS (SCATTERED ELEMENTS) ===
+        // Small hills/mounds
+        let hills = vec![
+            ("Hill 1", Vec3::new(15.0, 0.5, 15.0), Vec3::new(4.0, 1.0, 4.0)),
+            ("Hill 2", Vec3::new(-18.0, 0.6, 12.0), Vec3::new(5.0, 1.2, 5.0)),
+            ("Hill 3", Vec3::new(20.0, 0.4, -20.0), Vec3::new(3.5, 0.8, 3.5)),
+        ];
+
+        for (name, pos, scale) in hills {
+            let hill_id = scene.create_entity(name.to_string());
+            if let Some(entity) = scene.get_entity_mut(hill_id) {
+                entity.transform = Transform {
+                    position: pos,
+                    rotation: Quat::IDENTITY,
+                    scale,
+                };
+                entity.add_component(MeshRenderer {
+                    mesh_path: "cube".to_string(),
+                    material_path: Some("generated_aa0d9078.png".to_string()), // Grass
+                });
+                entity.add_component(RigidBody::static_body());
+                entity.add_component(Collider::box_collider(scale / 2.0));
+            }
+            entity_ids.push(hill_id);
         }
 
         // Store entity IDs for reference
-        let entity_ids = vec![cube_id, plane_id, small_cube_id];
+        let entity_ids = entity_ids;
 
         // Initialize physics world
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
