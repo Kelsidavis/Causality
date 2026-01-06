@@ -168,28 +168,31 @@ impl PostProcessPipeline {
             "Tonemap Pipeline",
         );
 
-        let bloom_bright_pipeline = Self::create_fullscreen_pipeline(
+        let bloom_bright_pipeline = Self::create_fullscreen_pipeline_with_entry(
             device,
             &pipeline_layout,
             &bloom_shader,
             wgpu::TextureFormat::Rgba16Float,
             "Bloom Bright Pipeline",
+            "fs_bright_pass",
         );
 
-        let bloom_blur_h_pipeline = Self::create_fullscreen_pipeline(
+        let bloom_blur_h_pipeline = Self::create_fullscreen_pipeline_with_entry(
             device,
             &pipeline_layout,
             &bloom_shader,
             wgpu::TextureFormat::Rgba16Float,
             "Bloom Blur H Pipeline",
+            "fs_blur_h",
         );
 
-        let bloom_blur_v_pipeline = Self::create_fullscreen_pipeline(
+        let bloom_blur_v_pipeline = Self::create_fullscreen_pipeline_with_entry(
             device,
             &pipeline_layout,
             &bloom_shader,
             wgpu::TextureFormat::Rgba16Float,
             "Bloom Blur V Pipeline",
+            "fs_blur_v",
         );
 
         let composite_pipeline = Self::create_fullscreen_pipeline(
@@ -218,6 +221,18 @@ impl PostProcessPipeline {
         format: wgpu::TextureFormat,
         label: &str,
     ) -> wgpu::RenderPipeline {
+        Self::create_fullscreen_pipeline_with_entry(device, layout, shader, format, label, "fs_main")
+    }
+
+    /// Create a fullscreen quad pipeline with custom entry point
+    fn create_fullscreen_pipeline_with_entry(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        shader: &wgpu::ShaderModule,
+        format: wgpu::TextureFormat,
+        label: &str,
+        fs_entry: &str,
+    ) -> wgpu::RenderPipeline {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(layout),
@@ -229,7 +244,7 @@ impl PostProcessPipeline {
             },
             fragment: Some(wgpu::FragmentState {
                 module: shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some(fs_entry),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: None,
