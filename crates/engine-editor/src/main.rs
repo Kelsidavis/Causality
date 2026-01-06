@@ -6,12 +6,14 @@ mod file_ipc;
 
 use anyhow::Result;
 use engine_assets::{manager::AssetManager, mesh::Mesh, HotReloadWatcher, ReloadEvent};
+use wgpu::util::DeviceExt;
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody};
 use engine_render::{
     camera::Camera,
     gpu_mesh::GpuVertex,
     mesh_manager::MeshManager,
     renderer::Renderer,
+    skybox::Skybox,
 };
 use engine_scene::{
     components::MeshRenderer,
@@ -62,6 +64,10 @@ struct WgpuState {
     renderer: Renderer,
     mesh_manager: MeshManager,
     depth_texture: wgpu::TextureView,
+    skybox: Option<Skybox>,
+    camera_bind_group_layout: wgpu::BindGroupLayout,
+    camera_bind_group: Option<wgpu::BindGroup>,
+    camera_uniform_buffer: wgpu::Buffer,
 }
 
 // Helper function to convert CPU mesh to GPU vertex format
@@ -244,6 +250,50 @@ fn update(ctx) {
             egui_wgpu::RendererOptions::default(),
         );
 
+        // Create camera uniform buffer and bind group layout for skybox
+        use glam::Mat4;
+        let camera_uniforms = [camera.view_projection_matrix().to_cols_array_2d()];
+        let camera_uniform_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Uniform Buffer"),
+            contents: bytemuck::cast_slice(&camera_uniforms),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout = renderer.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Camera Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let camera_bind_group = renderer.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Camera Bind Group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        // Create skybox
+        let skybox = Skybox::new(
+            &renderer.device,
+            renderer.surface_config.format,
+            &camera_bind_group_layout,
+        ).ok();
+
+        // Initialize skybox with gradient
+        if let Some(ref skybox) = skybox {
+            Skybox::create_gradient_skybox(&renderer.queue, &skybox.texture);
+        }
+
         self.window = Some(window.clone());
         self.wgpu_state = Some(WgpuState {
             instance,
@@ -251,6 +301,10 @@ fn update(ctx) {
             renderer,
             mesh_manager,
             depth_texture,
+            skybox,
+            camera_bind_group_layout,
+            camera_bind_group: Some(camera_bind_group),
+            camera_uniform_buffer,
         });
         self.camera = Some(camera);
         self.scene = Some(scene);
@@ -450,8 +504,55 @@ fn update(ctx) {
 
         let view_proj = camera.view_projection_matrix();
 
+        // Update camera uniform buffer for skybox
+        let camera_uniforms = [view_proj.to_cols_array_2d()];
+        wgpu_state.renderer.queue.write_buffer(
+            &wgpu_state.camera_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&camera_uniforms),
+        );
+
+        // Render skybox first (background)
+        if let Some(ref skybox) = wgpu_state.skybox {
+            if let Some(ref camera_bind_group) = wgpu_state.camera_bind_group {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Skybox Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.1,
+                                g: 0.2,
+                                b: 0.3,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &wgpu_state.depth_texture,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                render_pass.set_pipeline(&skybox.render_pipeline);
+                render_pass.set_bind_group(0, camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &skybox.bind_group, &[]);
+                render_pass.draw(0..3, 0..1); // Fullscreen triangle
+            }
+        }
+
         // Render all entities with MeshRenderer component
-        let mut first_mesh = true;
+        // Don't clear on first mesh since skybox already cleared
+        let mut first_mesh = if wgpu_state.skybox.is_some() { false } else { true };
         for entity in scene.entities() {
             if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
                 if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&mesh_renderer.mesh_path) {
@@ -465,7 +566,7 @@ fn update(ctx) {
                             gpu_mesh,
                             view_proj,
                             world_matrix,
-                            first_mesh, // Clear on first mesh only
+                            first_mesh, // Clear only if no skybox
                         );
                         first_mesh = false;
                     }
