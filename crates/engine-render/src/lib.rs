@@ -22,6 +22,6 @@ pub use lod::{distance_squared, LodBias, LodConfig, LodLevel};
 pub use mesh_manager::MeshManager;
 pub use postprocess::{Framebuffer, PostProcessPipeline, PostProcessSettings};
 pub use renderer::Renderer;
-pub use shadow::{ShadowMap, ShadowUniforms};
+pub use shadow::{ShadowMap, ShadowUniforms, ShadowPushConstants};
 pub use skybox::Skybox;
 pub use texture_manager::TextureManager;

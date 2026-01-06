@@ -727,6 +727,12 @@ impl EditorApp {
                 scene_radius,
             );
 
+            // Update shadow uniforms once (light space matrix only)
+            shadow_map.update_uniforms(
+                &wgpu_state.renderer.queue,
+                light_space_matrix,
+            );
+
             // Shadow pass - render all meshes from light's perspective
             {
                 let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -745,6 +751,7 @@ impl EditorApp {
                 });
 
                 shadow_pass.set_pipeline(&shadow_map.render_pipeline);
+                shadow_pass.set_bind_group(0, &shadow_map.bind_group, &[]);
 
                 // Render all meshes to shadow map
                 for entity in scene.entities() {
@@ -753,14 +760,17 @@ impl EditorApp {
                             if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
                                 let world_matrix = scene.world_matrix(entity.id);
 
-                                // Update shadow uniforms
-                                shadow_map.update_uniforms(
-                                    &wgpu_state.renderer.queue,
-                                    light_space_matrix,
-                                    world_matrix,
+                                // Set push constants for model matrix
+                                use engine_render::shadow::ShadowPushConstants;
+                                let push_constants = ShadowPushConstants {
+                                    model: world_matrix.to_cols_array_2d(),
+                                };
+                                shadow_pass.set_push_constants(
+                                    wgpu::ShaderStages::VERTEX,
+                                    0,
+                                    bytemuck::cast_slice(&[push_constants]),
                                 );
 
-                                shadow_pass.set_bind_group(0, &shadow_map.bind_group, &[]);
                                 shadow_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
                                 shadow_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                                 shadow_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
@@ -770,6 +780,14 @@ impl EditorApp {
                 }
             } // shadow_pass dropped here
         }
+
+        // Create shadow sampling bind group for main render pass
+        let shadow_sampling_bind_group = if let Some(ref shadow_map) = wgpu_state.shadow_map {
+            let layout = ShadowMap::create_sampling_bind_group_layout(&wgpu_state.renderer.device);
+            Some(shadow_map.create_sampling_bind_group(&wgpu_state.renderer.device, &layout))
+        } else {
+            None
+        };
 
         // Render skybox first (background)
         if let Some(ref skybox) = wgpu_state.skybox {
@@ -835,6 +853,15 @@ impl EditorApp {
                             .map(|tex| &tex.bind_group)
                             .unwrap();
 
+                        // Get shadow bind group (or create a dummy one if shadows disabled)
+                        let shadow_bind_group = if let Some(ref shadow_bg) = shadow_sampling_bind_group {
+                            shadow_bg
+                        } else {
+                            // Create a fallback bind group if shadows are disabled
+                            // (this shouldn't happen since shadow_map is created in init)
+                            continue;
+                        };
+
                         wgpu_state.renderer.render_mesh(
                             &mut encoder,
                             &view,
@@ -843,6 +870,7 @@ impl EditorApp {
                             view_proj,
                             world_matrix,
                             texture_bind_group,
+                            shadow_bind_group,
                             first_mesh,
                         );
                         first_mesh = false;

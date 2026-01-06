@@ -29,6 +29,11 @@ pub struct ShadowMap {
 pub struct ShadowUniforms {
     /// Light space transform matrix (proj * view)
     pub light_space_matrix: [[f32; 4]; 4],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ShadowPushConstants {
     /// Model matrix
     pub model: [[f32; 4]; 4],
 }
@@ -70,7 +75,6 @@ impl ShadowMap {
         // Create uniform buffer
         let uniforms = ShadowUniforms {
             light_space_matrix: Mat4::IDENTITY.to_cols_array_2d(),
-            model: Mat4::IDENTITY.to_cols_array_2d(),
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -113,7 +117,10 @@ impl ShadowMap {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Shadow Pipeline Layout"),
             bind_group_layouts: &[&shadow_bind_group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..64, // mat4x4<f32> = 64 bytes
+            }],
         });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -192,11 +199,10 @@ impl ShadowMap {
         projection * view
     }
 
-    /// Update shadow uniforms
-    pub fn update_uniforms(&self, queue: &wgpu::Queue, light_space_matrix: Mat4, model: Mat4) {
+    /// Update shadow uniforms (light space matrix only, model uses push constants)
+    pub fn update_uniforms(&self, queue: &wgpu::Queue, light_space_matrix: Mat4) {
         let uniforms = ShadowUniforms {
             light_space_matrix: light_space_matrix.to_cols_array_2d(),
-            model: model.to_cols_array_2d(),
         };
 
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
@@ -228,7 +234,7 @@ impl ShadowMap {
                 // Light space matrix
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
