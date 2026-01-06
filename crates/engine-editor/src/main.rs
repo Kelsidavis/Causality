@@ -75,6 +75,13 @@ struct WgpuState {
     post_process_pipeline: Option<PostProcessPipeline>,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct Uniforms {
+    view_proj: [[f32; 4]; 4],
+    model: [[f32; 4]; 4],
+}
+
 // Helper function to convert CPU mesh to GPU vertex format
 fn convert_mesh_to_gpu(mesh: &Mesh) -> Vec<GpuVertex> {
     mesh.vertices
@@ -159,30 +166,30 @@ impl EditorApp {
         let mut entity_ids = Vec::new();
 
         // === COUNTRYSIDE TERRAIN ===
-        // Large countryside ground
+        // Ground plane - scaled to fit view
         let countryside_id = scene.create_entity("Countryside Ground".to_string());
         if let Some(entity) = scene.get_entity_mut(countryside_id) {
             entity.transform = Transform {
-                position: Vec3::new(0.0, -0.2, 0.0),
+                position: Vec3::new(0.0, -0.5, 0.0),
                 rotation: Quat::IDENTITY,
-                scale: Vec3::new(50.0, 0.2, 50.0), // Vast countryside
+                scale: Vec3::new(20.0, 0.2, 20.0), // Reasonable ground size
             };
             entity.add_component(MeshRenderer {
                 mesh_path: "grass_cube".to_string(),
                 material_path: None,
             });
             entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(25.0, 0.1, 25.0)));
+            entity.add_component(Collider::box_collider(Vec3::new(10.0, 0.1, 10.0)));
         }
         entity_ids.push(countryside_id);
 
         // === MOAT SYSTEM ===
-        // Moat water basin - square ring around castle
+        // Moat water basin - square ring around castle (scaled down)
         let moat_positions = vec![
-            ("Moat North", Vec3::new(0.0, -1.0, -8.0), Vec3::new(18.0, 1.5, 2.0)),
-            ("Moat South", Vec3::new(0.0, -1.0, 8.0), Vec3::new(18.0, 1.5, 2.0)),
-            ("Moat East", Vec3::new(8.0, -1.0, 0.0), Vec3::new(2.0, 1.5, 14.0)),
-            ("Moat West", Vec3::new(-8.0, -1.0, 0.0), Vec3::new(2.0, 1.5, 14.0)),
+            ("Moat North", Vec3::new(0.0, -0.8, -4.5), Vec3::new(10.0, 0.8, 1.0)),
+            ("Moat South", Vec3::new(0.0, -0.8, 4.5), Vec3::new(10.0, 0.8, 1.0)),
+            ("Moat East", Vec3::new(4.5, -0.8, 0.0), Vec3::new(1.0, 0.8, 8.0)),
+            ("Moat West", Vec3::new(-4.5, -0.8, 0.0), Vec3::new(1.0, 0.8, 8.0)),
         ];
 
         for (name, pos, scale) in moat_positions {
@@ -205,10 +212,10 @@ impl EditorApp {
 
         // === CASTLE WALLS (CURTAIN WALLS) ===
         let castle_walls = vec![
-            ("Castle Wall North", Vec3::new(0.0, 2.5, -6.0), Vec3::new(12.0, 5.0, 0.6)),
-            ("Castle Wall South", Vec3::new(0.0, 2.5, 6.0), Vec3::new(12.0, 5.0, 0.6)),
-            ("Castle Wall East", Vec3::new(6.0, 2.5, 0.0), Vec3::new(0.6, 5.0, 12.0)),
-            ("Castle Wall West", Vec3::new(-6.0, 2.5, 0.0), Vec3::new(0.6, 5.0, 12.0)),
+            ("Castle Wall North", Vec3::new(0.0, 1.5, -3.5), Vec3::new(7.0, 3.0, 0.4)),
+            ("Castle Wall South", Vec3::new(0.0, 1.5, 3.5), Vec3::new(7.0, 3.0, 0.4)),
+            ("Castle Wall East", Vec3::new(3.5, 1.5, 0.0), Vec3::new(0.4, 3.0, 7.0)),
+            ("Castle Wall West", Vec3::new(-3.5, 1.5, 0.0), Vec3::new(0.4, 3.0, 7.0)),
         ];
 
         for (name, pos, scale) in castle_walls {
@@ -231,10 +238,10 @@ impl EditorApp {
 
         // === CORNER TOWERS (DEFENSIVE TURRETS) ===
         let corner_towers = vec![
-            ("Tower NE", Vec3::new(6.0, 3.5, -6.0)),
-            ("Tower SE", Vec3::new(6.0, 3.5, 6.0)),
-            ("Tower NW", Vec3::new(-6.0, 3.5, -6.0)),
-            ("Tower SW", Vec3::new(-6.0, 3.5, 6.0)),
+            ("Tower NE", Vec3::new(3.5, 2.0, -3.5)),
+            ("Tower SE", Vec3::new(3.5, 2.0, 3.5)),
+            ("Tower NW", Vec3::new(-3.5, 2.0, -3.5)),
+            ("Tower SW", Vec3::new(-3.5, 2.0, 3.5)),
         ];
 
         for (name, pos) in corner_towers {
@@ -243,14 +250,14 @@ impl EditorApp {
                 entity.transform = Transform {
                     position: pos,
                     rotation: Quat::IDENTITY,
-                    scale: Vec3::new(1.5, 7.0, 1.5), // Tall defensive towers
+                    scale: Vec3::new(1.0, 4.0, 1.0), // Defensive towers
                 };
                 entity.add_component(MeshRenderer {
                     mesh_path: "stone_cube".to_string(),
                     material_path: None,
                 });
                 entity.add_component(RigidBody::static_body());
-                entity.add_component(Collider::box_collider(Vec3::new(0.75, 3.5, 0.75)));
+                entity.add_component(Collider::box_collider(Vec3::new(0.5, 2.0, 0.5)));
             }
             entity_ids.push(tower_id);
         }
@@ -259,16 +266,16 @@ impl EditorApp {
         let keep_id = scene.create_entity("Castle Keep".to_string());
         if let Some(entity) = scene.get_entity_mut(keep_id) {
             entity.transform = Transform {
-                position: Vec3::new(0.0, 5.0, 0.0),
+                position: Vec3::new(0.0, 3.0, 0.0),
                 rotation: Quat::IDENTITY,
-                scale: Vec3::new(3.0, 10.0, 3.0), // Imposing central tower
+                scale: Vec3::new(1.5, 6.0, 1.5), // Central tower
             };
             entity.add_component(MeshRenderer {
                 mesh_path: "stone_cube".to_string(),
                 material_path: None,
             });
             entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(1.5, 5.0, 1.5)));
+            entity.add_component(Collider::box_collider(Vec3::new(0.75, 3.0, 0.75)));
         }
         entity_ids.push(keep_id);
 
@@ -276,16 +283,16 @@ impl EditorApp {
         let gatehouse_id = scene.create_entity("Gatehouse".to_string());
         if let Some(entity) = scene.get_entity_mut(gatehouse_id) {
             entity.transform = Transform {
-                position: Vec3::new(0.0, 2.0, 6.5), // Front of south wall
+                position: Vec3::new(0.0, 1.2, 3.8), // Front of south wall
                 rotation: Quat::IDENTITY,
-                scale: Vec3::new(2.5, 4.0, 1.5),
+                scale: Vec3::new(1.5, 2.4, 0.8),
             };
             entity.add_component(MeshRenderer {
                 mesh_path: "stone_cube".to_string(),
                 material_path: None,
             });
             entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(1.25, 2.0, 0.75)));
+            entity.add_component(Collider::box_collider(Vec3::new(0.75, 1.2, 0.4)));
         }
         entity_ids.push(gatehouse_id);
 
@@ -296,23 +303,23 @@ impl EditorApp {
             entity.transform = Transform {
                 position: Vec3::new(0.0, 0.0, 0.0),
                 rotation: Quat::IDENTITY,
-                scale: Vec3::new(11.0, 0.1, 11.0),
+                scale: Vec3::new(6.5, 0.1, 6.5),
             };
             entity.add_component(MeshRenderer {
                 mesh_path: "stone_cube".to_string(),
                 material_path: None,
             });
             entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(5.5, 0.05, 5.5)));
+            entity.add_component(Collider::box_collider(Vec3::new(3.25, 0.05, 3.25)));
         }
         entity_ids.push(courtyard_id);
 
         // === COUNTRYSIDE DETAILS (SCATTERED ELEMENTS) ===
         // Small hills/mounds
         let hills = vec![
-            ("Hill 1", Vec3::new(15.0, 0.5, 15.0), Vec3::new(4.0, 1.0, 4.0)),
-            ("Hill 2", Vec3::new(-18.0, 0.6, 12.0), Vec3::new(5.0, 1.2, 5.0)),
-            ("Hill 3", Vec3::new(20.0, 0.4, -20.0), Vec3::new(3.5, 0.8, 3.5)),
+            ("Hill 1", Vec3::new(8.0, 0.3, 8.0), Vec3::new(2.0, 0.6, 2.0)),
+            ("Hill 2", Vec3::new(-8.0, 0.35, 7.0), Vec3::new(2.5, 0.7, 2.5)),
+            ("Hill 3", Vec3::new(9.0, 0.25, -9.0), Vec3::new(1.8, 0.5, 1.8)),
         ];
 
         for (name, pos, scale) in hills {
@@ -780,26 +787,70 @@ impl EditorApp {
             }
         }
 
-        // Render all entities with MeshRenderer component
-        // Don't clear on first mesh since skybox already cleared
-        let mut first_mesh = if wgpu_state.skybox.is_some() { false } else { true };
+        // Render all entities - each with its own render pass to ensure uniform buffer updates work
+        let mut first_mesh = wgpu_state.skybox.is_none();
         for entity in scene.entities() {
             if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
                 if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&mesh_renderer.mesh_path) {
                     if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
                         let world_matrix = scene.world_matrix(entity.id);
 
-                        wgpu_state.renderer.render_mesh(
-                            &mut encoder,
-                            &view,
-                            &wgpu_state.depth_texture,
-                            gpu_mesh,
-                            view_proj,
-                            world_matrix,
-                            first_mesh, // Clear only if no skybox
+                        // Update uniforms BEFORE starting render pass
+                        let uniforms = Uniforms {
+                            view_proj: view_proj.to_cols_array_2d(),
+                            model: world_matrix.to_cols_array_2d(),
+                        };
+                        wgpu_state.renderer.queue.write_buffer(
+                            &wgpu_state.renderer.uniform_buffer,
+                            0,
+                            bytemuck::cast_slice(&[uniforms]),
                         );
+
+                        // Create render pass for this mesh
+                        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Mesh Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: if first_mesh {
+                                        wgpu::LoadOp::Clear(wgpu::Color {
+                                            r: 0.1,
+                                            g: 0.2,
+                                            b: 0.3,
+                                            a: 1.0,
+                                        })
+                                    } else {
+                                        wgpu::LoadOp::Load // Preserve previous meshes
+                                    },
+                                    store: wgpu::StoreOp::Store,
+                                },
+                                depth_slice: None,
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &wgpu_state.depth_texture,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: if first_mesh {
+                                        wgpu::LoadOp::Clear(1.0)
+                                    } else {
+                                        wgpu::LoadOp::Load
+                                    },
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
+
+                        render_pass.set_pipeline(&wgpu_state.renderer.render_pipeline);
+                        render_pass.set_bind_group(0, &wgpu_state.renderer.uniform_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
+
                         first_mesh = false;
-                    }
+                    }  // render_pass dropped here
                 }
             }
         }
