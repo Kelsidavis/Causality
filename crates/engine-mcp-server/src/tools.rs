@@ -268,6 +268,58 @@ impl ToolRegistry {
                     "required": ["entity_name"]
                 }
             }),
+            json!({
+                "name": "generate_texture",
+                "description": "Generate a texture from a text prompt using AI (Stable Diffusion)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "Text description of the texture to generate"
+                        },
+                        "width": {
+                            "type": "integer",
+                            "description": "Texture width in pixels (default: 512, must be multiple of 64)"
+                        },
+                        "height": {
+                            "type": "integer",
+                            "description": "Texture height in pixels (default: 512, must be multiple of 64)"
+                        },
+                        "quality": {
+                            "type": "string",
+                            "description": "Quality level: 'fast', 'standard', 'high', or 'best' (default: 'high')"
+                        },
+                        "seed": {
+                            "type": "integer",
+                            "description": "Random seed for reproducibility (optional)"
+                        }
+                    },
+                    "required": ["prompt"]
+                }
+            }),
+            json!({
+                "name": "generate_skybox",
+                "description": "Generate a 360-degree skybox from a text prompt using AI",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "Text description of the skybox environment"
+                        },
+                        "quality": {
+                            "type": "string",
+                            "description": "Quality level: 'fast', 'standard', 'high', or 'best' (default: 'high')"
+                        },
+                        "seed": {
+                            "type": "integer",
+                            "description": "Random seed for reproducibility (optional)"
+                        }
+                    },
+                    "required": ["prompt"]
+                }
+            }),
         ]
     }
 
@@ -295,6 +347,8 @@ impl ToolRegistry {
             "get_scene_info" => self.get_scene_info(arguments),
             "add_rigidbody" => self.add_rigidbody(arguments),
             "add_collider" => self.add_collider(arguments),
+            "generate_texture" => self.generate_texture(arguments),
+            "generate_skybox" => self.generate_skybox(arguments),
             _ => Err(anyhow!("Unknown tool: {}", tool_name)),
         }
     }
@@ -676,6 +730,114 @@ impl ToolRegistry {
         let success = result.get("collider_added").and_then(|v| v.as_bool()).unwrap_or(false);
         let message = if success {
             format!("Successfully added {} collider to entity '{}'", shape_type, entity_name)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
+    }
+
+    fn generate_texture(&self, args: &Value) -> Result<Value> {
+        let prompt = args
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing prompt"))?;
+
+        let width = args
+            .get("width")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(512) as u32;
+
+        let height = args
+            .get("height")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(512) as u32;
+
+        let quality = args
+            .get("quality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("high");
+
+        let seed = args.get("seed").and_then(|v| v.as_u64());
+
+        log::info!(
+            "Generating texture '{}' ({}x{}, quality: {})",
+            prompt,
+            width,
+            height,
+            quality
+        );
+
+        let result = self.send_command("generate_texture", json!({
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+            "quality": quality,
+            "seed": seed,
+        }))?;
+
+        let success = result.get("generated").and_then(|v| v.as_bool()).unwrap_or(false);
+        let asset_id = result.get("asset_id").and_then(|v| v.as_str());
+
+        let message = if success {
+            if let Some(id) = asset_id {
+                format!("Successfully generated texture '{}' (ID: {})", prompt, id)
+            } else {
+                format!("Successfully generated texture '{}'", prompt)
+            }
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
+    }
+
+    fn generate_skybox(&self, args: &Value) -> Result<Value> {
+        let prompt = args
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing prompt"))?;
+
+        let quality = args
+            .get("quality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("high");
+
+        let seed = args.get("seed").and_then(|v| v.as_u64());
+
+        log::info!("Generating skybox '{}' (quality: {})", prompt, quality);
+
+        let result = self.send_command("generate_skybox", json!({
+            "prompt": prompt,
+            "quality": quality,
+            "seed": seed,
+        }))?;
+
+        let success = result.get("generated").and_then(|v| v.as_bool()).unwrap_or(false);
+        let asset_id = result.get("asset_id").and_then(|v| v.as_str());
+
+        let message = if success {
+            if let Some(id) = asset_id {
+                format!("Successfully generated skybox '{}' (ID: {})", prompt, id)
+            } else {
+                format!("Successfully generated skybox '{}'", prompt)
+            }
         } else {
             result.get("error")
                 .and_then(|v| v.as_str())
