@@ -18,6 +18,11 @@ pub struct Renderer {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
     pub view_proj: [[f32; 4]; 4],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstants {
     pub model: [[f32; 4]; 4],
 }
 
@@ -37,12 +42,15 @@ impl Renderer {
             })
             .await?;
 
-        // Request device
+        // Request device with push constants support
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Main Device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_features: wgpu::Features::PUSH_CONSTANTS,
+                required_limits: wgpu::Limits {
+                    max_push_constant_size: 128, // Enough for a 4x4 matrix (64 bytes) with headroom
+                    ..Default::default()
+                },
                 memory_hints: Default::default(),
                 experimental_features: Default::default(),
                 trace: Default::default(),
@@ -77,10 +85,9 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/pbr.wgsl").into()),
         });
 
-        // Create uniform buffer
+        // Create uniform buffer (only view_proj now, model is in push constants)
         let uniforms = Uniforms {
             view_proj: Mat4::IDENTITY.to_cols_array_2d(),
-            model: Mat4::IDENTITY.to_cols_array_2d(),
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -114,11 +121,14 @@ impl Renderer {
             }],
         });
 
-        // Create pipeline layout
+        // Create pipeline layout with push constants for model matrix
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
             bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..64, // mat4x4<f32> = 64 bytes
+            }],
         });
 
         // Create depth stencil state
@@ -218,13 +228,17 @@ impl Renderer {
         model: Mat4,
         clear: bool,
     ) {
-        // Update uniforms
+        // Update uniforms (only view_proj, model is in push constants)
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
-            model: model.to_cols_array_2d(),
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
+
+        // Prepare push constants for this mesh
+        let push_constants = PushConstants {
+            model: model.to_cols_array_2d(),
+        };
 
         // Begin render pass
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -265,6 +279,12 @@ impl Renderer {
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        // Set push constants for model matrix
+        render_pass.set_push_constants(
+            wgpu::ShaderStages::VERTEX,
+            0,
+            bytemuck::cast_slice(&[push_constants]),
+        );
         render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         render_pass
             .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);

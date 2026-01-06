@@ -75,12 +75,8 @@ struct WgpuState {
     post_process_pipeline: Option<PostProcessPipeline>,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct Uniforms {
-    view_proj: [[f32; 4]; 4],
-    model: [[f32; 4]; 4],
-}
+// Uniforms and push constants now handled by renderer
+// No need to redefine here since render_mesh handles it
 
 // Helper function to convert CPU mesh to GPU vertex format
 fn convert_mesh_to_gpu(mesh: &Mesh) -> Vec<GpuVertex> {
