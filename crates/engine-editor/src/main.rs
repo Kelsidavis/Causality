@@ -12,6 +12,7 @@ use engine_render::{
     camera::Camera,
     gpu_mesh::GpuVertex,
     mesh_manager::MeshManager,
+    postprocess::{Framebuffer, PostProcessPipeline},
     renderer::Renderer,
     shadow::ShadowMap,
     skybox::Skybox,
@@ -70,6 +71,8 @@ struct WgpuState {
     camera_bind_group_layout: wgpu::BindGroupLayout,
     camera_bind_group: Option<wgpu::BindGroup>,
     camera_uniform_buffer: wgpu::Buffer,
+    framebuffer: Option<Framebuffer>,
+    post_process_pipeline: Option<PostProcessPipeline>,
 }
 
 // Helper function to convert CPU mesh to GPU vertex format
@@ -299,6 +302,21 @@ fn update(ctx) {
         // Create shadow map
         let shadow_map = ShadowMap::new(&renderer.device).ok();
 
+        // Create framebuffer for post-processing
+        let framebuffer = Framebuffer::new(
+            &renderer.device,
+            size.width,
+            size.height,
+            renderer.surface_config.format,
+            true, // with depth
+        ).ok();
+
+        // Create post-processing pipeline
+        let post_process_pipeline = PostProcessPipeline::new(
+            &renderer.device,
+            renderer.surface_config.format,
+        ).ok();
+
         self.window = Some(window.clone());
         self.wgpu_state = Some(WgpuState {
             instance,
@@ -311,6 +329,8 @@ fn update(ctx) {
             camera_bind_group_layout,
             camera_bind_group: Some(camera_bind_group),
             camera_uniform_buffer,
+            framebuffer,
+            post_process_pipeline,
         });
         self.camera = Some(camera);
         self.scene = Some(scene);
