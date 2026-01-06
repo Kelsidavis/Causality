@@ -177,6 +177,142 @@ impl FileIpcHandler {
                     }
                 }
             }
+            "set_transform" => {
+                let entity_name = args
+                    .get("entity_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                // Find entity by name
+                let entity_id_opt = scene
+                    .entities()
+                    .find(|e| e.name == entity_name)
+                    .map(|e| e.id);
+
+                if let Some(entity_id) = entity_id_opt {
+                    if let Some(entity) = scene.get_entity_mut(entity_id) {
+                        // Update position if provided
+                        if let Some(pos) = args.get("position").and_then(|v| v.as_array()) {
+                            entity.transform.position = glam::Vec3::new(
+                                pos.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                                pos.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                                pos.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                            );
+                        }
+
+                        // Update scale if provided
+                        if let Some(scl) = args.get("scale").and_then(|v| v.as_array()) {
+                            entity.transform.scale = glam::Vec3::new(
+                                scl.get(0).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+                                scl.get(1).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+                                scl.get(2).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+                            );
+                        }
+
+                        log::info!("Updated transform for entity '{}'", entity_name);
+
+                        IpcResponse {
+                            id,
+                            success: true,
+                            result: json!({
+                                "updated": true,
+                                "entity_name": entity_name
+                            }),
+                        }
+                    } else {
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "error": format!("Failed to get entity '{}'", entity_name)
+                            }),
+                        }
+                    }
+                } else {
+                    IpcResponse {
+                        id,
+                        success: false,
+                        result: json!({
+                            "error": format!("Entity '{}' not found", entity_name)
+                        }),
+                    }
+                }
+            }
+            "get_entity_info" => {
+                let entity_name = args
+                    .get("entity_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let entity_id_opt = scene
+                    .entities()
+                    .find(|e| e.name == entity_name)
+                    .map(|e| e.id);
+
+                if let Some(entity_id) = entity_id_opt {
+                    if let Some(entity) = scene.get_entity(entity_id) {
+                        IpcResponse {
+                            id,
+                            success: true,
+                            result: json!({
+                                "entity_id": format!("{:?}", entity_id),
+                                "name": entity.name,
+                                "position": [entity.transform.position.x, entity.transform.position.y, entity.transform.position.z],
+                                "rotation": [entity.transform.rotation.x, entity.transform.rotation.y, entity.transform.rotation.z, entity.transform.rotation.w],
+                                "scale": [entity.transform.scale.x, entity.transform.scale.y, entity.transform.scale.z],
+                            }),
+                        }
+                    } else {
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "error": format!("Failed to get entity '{}'", entity_name)
+                            }),
+                        }
+                    }
+                } else {
+                    IpcResponse {
+                        id,
+                        success: false,
+                        result: json!({
+                            "error": format!("Entity '{}' not found", entity_name)
+                        }),
+                    }
+                }
+            }
+            "add_script" => {
+                let entity_name = args
+                    .get("entity_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                log::warn!("Script addition via IPC not yet fully implemented for entity '{}'", entity_name);
+
+                IpcResponse {
+                    id,
+                    success: false,
+                    result: json!({
+                        "error": "Script addition not yet implemented".to_string()
+                    }),
+                }
+            }
+            "load_model" => {
+                let entity_name = args
+                    .get("entity_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                log::warn!("Model loading via IPC not yet fully implemented for entity '{}'", entity_name);
+
+                IpcResponse {
+                    id,
+                    success: false,
+                    result: json!({
+                        "error": "Model loading not yet implemented".to_string()
+                    }),
+                }
+            }
             _ => IpcResponse {
                 id,
                 success: false,

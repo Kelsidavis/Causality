@@ -286,13 +286,28 @@ impl ToolRegistry {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing entity_name"))?;
 
-        // TODO: Send IPC message to editor
-        log::info!("Would set transform for entity '{}'", entity_name);
+        log::info!("Setting transform for entity '{}'", entity_name);
+
+        let result = self.send_command("set_transform", json!({
+            "entity_name": entity_name,
+            "position": args.get("position"),
+            "scale": args.get("scale"),
+        }))?;
+
+        let success = result.get("updated").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            format!("Updated transform for entity '{}'", entity_name)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
 
         Ok(json!({
             "content": [{
                 "type": "text",
-                "text": format!("Updated transform for entity '{}'", entity_name)
+                "text": message
             }]
         }))
     }
@@ -334,15 +349,40 @@ impl ToolRegistry {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing entity_name"))?;
 
-        // TODO: Query editor via IPC
-        log::info!("Would get info for entity '{}'", entity_name);
+        log::info!("Getting info for entity '{}'", entity_name);
 
-        Ok(json!({
-            "content": [{
-                "type": "text",
-                "text": format!("Entity '{}' info:\nPosition: [0, 0, 0]\nRotation: [0, 0, 0, 1]\nScale: [1, 1, 1]", entity_name)
-            }]
-        }))
+        let result = self.send_command("get_entity_info", json!({
+            "entity_name": entity_name,
+        }))?;
+
+        if result.get("position").is_some() {
+            let pos = result.get("position").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let rot = result.get("rotation").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let scl = result.get("scale").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+
+            let info = format!(
+                "Entity: {}\nPosition: {:?}\nRotation: {:?}\nScale: {:?}",
+                entity_name, pos, rot, scl
+            );
+
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": info
+                }]
+            }))
+        } else {
+            let error = result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
+
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("Error: {}", error)
+                }]
+            }))
+        }
     }
 
     fn delete_entity(&self, args: &Value) -> Result<Value> {
@@ -351,13 +391,26 @@ impl ToolRegistry {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing entity_name"))?;
 
-        // TODO: Send IPC message to editor
-        log::info!("Would delete entity '{}'", entity_name);
+        log::info!("Deleting entity '{}'", entity_name);
+
+        let result = self.send_command("delete_entity", json!({
+            "name": entity_name,
+        }))?;
+
+        let success = result.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            format!("Deleted entity '{}'", entity_name)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
 
         Ok(json!({
             "content": [{
                 "type": "text",
-                "text": format!("Deleted entity '{}'", entity_name)
+                "text": message
             }]
         }))
     }
@@ -373,16 +426,30 @@ impl ToolRegistry {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing script"))?;
 
-        // TODO: Send IPC message to editor
-        log::info!("Would add script to entity '{}'", entity_name);
+        log::info!("Adding script to entity '{}'", entity_name);
         log::debug!("Script content: {}", script);
 
-        Ok(json!({
-            "content": [{
-                "type": "text",
-                "text": format!("Added script to entity '{}'", entity_name)
-            }]
-        }))
+        let result = self.send_command("add_script", json!({
+            "entity_name": entity_name,
+            "script": script,
+        }))?;
+
+        let error = result.get("error").and_then(|v| v.as_str());
+        if error.is_some() {
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("Error: {}", error.unwrap())
+                }]
+            }))
+        } else {
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("Added script to entity '{}'", entity_name)
+                }]
+            }))
+        }
     }
 
     fn load_model(&self, args: &Value) -> Result<Value> {
@@ -396,30 +463,70 @@ impl ToolRegistry {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing model_path"))?;
 
-        // TODO: Send IPC message to editor
         log::info!(
-            "Would load model '{}' as entity '{}'",
+            "Loading model '{}' as entity '{}'",
             model_path,
             entity_name
         );
 
-        Ok(json!({
-            "content": [{
-                "type": "text",
-                "text": format!("Loaded model '{}' as entity '{}'", model_path, entity_name)
-            }]
-        }))
+        let result = self.send_command("load_model", json!({
+            "entity_name": entity_name,
+            "model_path": model_path,
+        }))?;
+
+        let error = result.get("error").and_then(|v| v.as_str());
+        if error.is_some() {
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("Error: {}", error.unwrap())
+                }]
+            }))
+        } else {
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("Loaded model '{}' as entity '{}'", model_path, entity_name)
+                }]
+            }))
+        }
     }
 
     fn get_scene_info(&self, _args: &Value) -> Result<Value> {
-        // TODO: Query editor via IPC
-        log::info!("Would get scene info");
+        log::info!("Getting scene info");
 
-        Ok(json!({
-            "content": [{
-                "type": "text",
-                "text": "Scene: Demo Scene\nEntities: 3\nPhysics: Enabled\nScripting: Enabled"
-            }]
-        }))
+        let result = self.send_command("get_scene_info", json!({}))?;
+
+        if let Some(entity_count) = result.get("entity_count").and_then(|v| v.as_u64()) {
+            let entities: Vec<String> = result
+                .get("entities")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let entity_list = if entities.is_empty() {
+                "No entities".to_string()
+            } else {
+                entities.join(", ")
+            };
+
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("Scene Info:\nEntities: {}\n- {}", entity_count, entity_list)
+                }]
+            }))
+        } else {
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": "Scene: Unknown\nEntities: 0"
+                }]
+            }))
+        }
     }
 }
