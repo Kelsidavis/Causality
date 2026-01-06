@@ -3,7 +3,7 @@
 use glam::Vec3;
 use rapier3d::prelude::*;
 use engine_scene::entity::EntityId;
-use std::collections::HashMap;
+use crate::layers::CollisionGroups;
 
 /// Result of a raycast query
 #[derive(Debug, Clone)]
@@ -28,6 +28,8 @@ pub struct RaycastQuery {
     pub max_distance: f32,
     /// Whether to hit triggers/sensors
     pub hit_triggers: bool,
+    /// Collision layer filtering (None = hit all layers)
+    pub collision_groups: Option<CollisionGroups>,
 }
 
 impl RaycastQuery {
@@ -37,11 +39,24 @@ impl RaycastQuery {
             direction: direction.normalize(),
             max_distance,
             hit_triggers: false,
+            collision_groups: None,
         }
     }
 
     pub fn with_triggers(mut self, hit_triggers: bool) -> Self {
         self.hit_triggers = hit_triggers;
+        self
+    }
+
+    pub fn with_collision_groups(mut self, groups: CollisionGroups) -> Self {
+        self.collision_groups = Some(groups);
+        self
+    }
+
+    pub fn with_layers(mut self, layers: &[u32]) -> Self {
+        let mut groups = CollisionGroups::all();
+        groups = groups.with_filter(layers);
+        self.collision_groups = Some(groups);
         self
     }
 }
@@ -54,7 +69,10 @@ impl super::PhysicsWorld {
             vector![query.direction.x, query.direction.y, query.direction.z],
         );
 
-        let filter = QueryFilter::default();
+        let mut filter = QueryFilter::default();
+        if let Some(groups) = query.collision_groups {
+            filter = filter.groups(groups.to_rapier());
+        }
 
         if let Some((collider_handle, intersection)) = self.query_pipeline.cast_ray_and_get_normal(
             &self.rigid_body_set,
@@ -91,7 +109,10 @@ impl super::PhysicsWorld {
             vector![query.direction.x, query.direction.y, query.direction.z],
         );
 
-        let filter = QueryFilter::default();
+        let mut filter = QueryFilter::default();
+        if let Some(groups) = query.collision_groups {
+            filter = filter.groups(groups.to_rapier());
+        }
 
         let mut hits = Vec::new();
 
@@ -135,7 +156,10 @@ impl super::PhysicsWorld {
             vector![query.direction.x, query.direction.y, query.direction.z],
         );
 
-        let filter = QueryFilter::default();
+        let mut filter = QueryFilter::default();
+        if let Some(groups) = query.collision_groups {
+            filter = filter.groups(groups.to_rapier());
+        }
 
         self.query_pipeline
             .cast_ray(
