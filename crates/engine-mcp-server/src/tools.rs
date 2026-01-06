@@ -427,29 +427,30 @@ impl ToolRegistry {
             .ok_or_else(|| anyhow!("Missing script"))?;
 
         log::info!("Adding script to entity '{}'", entity_name);
-        log::debug!("Script content: {}", script);
+        log::debug!("Script length: {} bytes", script.len());
 
         let result = self.send_command("add_script", json!({
             "entity_name": entity_name,
             "script": script,
         }))?;
 
-        let error = result.get("error").and_then(|v| v.as_str());
-        if error.is_some() {
-            Ok(json!({
-                "content": [{
-                    "type": "text",
-                    "text": format!("Error: {}", error.unwrap())
-                }]
-            }))
+        let success = result.get("script_added").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            let size = result.get("script_size").and_then(|v| v.as_u64()).unwrap_or(0);
+            format!("Successfully added script ({} bytes) to entity '{}'", size, entity_name)
         } else {
-            Ok(json!({
-                "content": [{
-                    "type": "text",
-                    "text": format!("Added script to entity '{}'", entity_name)
-                }]
-            }))
-        }
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
     }
 
     fn load_model(&self, args: &Value) -> Result<Value> {

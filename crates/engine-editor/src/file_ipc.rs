@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use engine_scene::Scene;
+use engine_scripting::Script;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcCommand {
@@ -287,14 +288,51 @@ impl FileIpcHandler {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
 
-                log::warn!("Script addition via IPC not yet fully implemented for entity '{}'", entity_name);
+                let script_source = args
+                    .get("script")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-                IpcResponse {
-                    id,
-                    success: false,
-                    result: json!({
-                        "error": "Script addition not yet implemented".to_string()
-                    }),
+                // Find entity by name
+                let entity_id_opt = scene
+                    .entities()
+                    .find(|e| e.name == entity_name)
+                    .map(|e| e.id);
+
+                if let Some(entity_id) = entity_id_opt {
+                    if let Some(entity) = scene.get_entity_mut(entity_id) {
+                        // Create and attach script component
+                        let script = Script::new(script_source.to_string());
+                        entity.add_component(script);
+
+                        log::info!("Added script to entity '{}' (length: {} bytes)", entity_name, script_source.len());
+
+                        IpcResponse {
+                            id,
+                            success: true,
+                            result: json!({
+                                "script_added": true,
+                                "entity_name": entity_name,
+                                "script_size": script_source.len()
+                            }),
+                        }
+                    } else {
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "error": format!("Failed to get entity '{}'", entity_name)
+                            }),
+                        }
+                    }
+                } else {
+                    IpcResponse {
+                        id,
+                        success: false,
+                        result: json!({
+                            "error": format!("Entity '{}' not found", entity_name)
+                        }),
+                    }
                 }
             }
             "load_model" => {
