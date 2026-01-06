@@ -12,6 +12,7 @@ pub mod renderer;
 pub mod shadow;
 pub mod skybox;
 pub mod texture_manager;
+pub mod water;
 
 pub use camera::Camera;
 pub use culling::{CullingStats, CullingSystem, Renderable, RenderableId, VisibilityResult};
@@ -25,3 +26,4 @@ pub use renderer::Renderer;
 pub use shadow::{ShadowMap, ShadowUniforms, ShadowPushConstants};
 pub use skybox::Skybox;
 pub use texture_manager::TextureManager;
+pub use water::{WaterRenderer, WaterUniforms, WaterPushConstants};

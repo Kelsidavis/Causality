@@ -1,5 +1,6 @@
 // Engine Physics - Rapier3D integration
 
+pub mod buoyancy;
 pub mod character;
 pub mod components;
 pub mod joints;
@@ -9,6 +10,7 @@ pub mod raycast;
 pub mod sync;
 pub mod world;
 
+pub use buoyancy::{BuoyancySystem, WaterVolume};
 pub use character::CharacterController;
 pub use components::{Collider, ColliderShape, RigidBody, RigidBodyType};
 pub use joints::{JointConfig, JointHandle, JointManager, JointType};

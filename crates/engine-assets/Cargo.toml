@@ -7,6 +7,7 @@ edition = "2021"
 glam = { workspace = true }
 gltf = { workspace = true }
 image = { workspace = true }
+noise = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 notify = { workspace = true }

@@ -32,6 +32,7 @@ rhai = { version = "1.19", features = ["sync", "serde"] }
 # Assets
 gltf = "1.4"
 image = "0.25"
+noise = "0.9"
 
 # GUI
 egui = "0.33"
