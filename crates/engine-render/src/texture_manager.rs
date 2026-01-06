@@ -1,9 +1,54 @@
 // Texture manager - handles uploading and managing GPU textures
+//!
+//! The texture manager provides centralized texture loading, caching, and GPU upload.
+//! It prevents duplicate uploads and provides handle-based access to textures.
+//!
+//! # Features
+//!
+//! - **Texture caching** - Prevents duplicate GPU uploads
+//! - **Handle-based access** - Type-safe texture references
+//! - **Automatic fallback** - White texture for missing textures
+//! - **Name-based lookup** - Access textures by string name
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use engine_render::TextureManager;
+//! use engine_assets::Texture;
+//!
+//! // Create manager
+//! let mut texture_manager = TextureManager::new(&device, &queue);
+//!
+//! // Load and upload texture
+//! let texture = Texture::from_file("stone.png")?;
+//! let handle = texture_manager.upload_texture(
+//!     &device,
+//!     &queue,
+//!     "stone".to_string(),
+//!     &texture
+//! );
+//!
+//! // Get texture for rendering
+//! let gpu_texture = texture_manager.get_texture(handle).unwrap();
+//! render_pass.set_bind_group(1, &gpu_texture.bind_group, &[]);
+//! ```
 
 use crate::gpu_texture::{GpuTexture, TextureHandle};
 use engine_assets::Texture;
 use std::collections::HashMap;
 
+/// Manages texture loading, caching, and GPU upload.
+///
+/// Provides centralized texture management with automatic caching
+/// to prevent duplicate uploads. Textures are accessed via handles
+/// and can be looked up by name.
+///
+/// # Fields
+///
+/// - `textures`: Vector of GPU textures
+/// - `texture_map`: Name to handle mapping for lookup
+/// - `bind_group_layout`: Shared bind group layout for all textures
+/// - `white_texture_handle`: Handle to default white fallback texture
 pub struct TextureManager {
     textures: Vec<GpuTexture>,
     texture_map: HashMap<String, TextureHandle>,
@@ -12,7 +57,16 @@ pub struct TextureManager {
 }
 
 impl TextureManager {
-    /// Create the bind group layout descriptor for textures (static definition)
+    /// Create the bind group layout descriptor for textures (static definition).
+    ///
+    /// Returns a static descriptor that can be used to create bind group layouts
+    /// in both the renderer and texture manager, ensuring compatibility.
+    ///
+    /// The layout defines two bindings for textures:
+    /// - Binding 0: Texture view (fragment shader)
+    /// - Binding 1: Sampler (fragment shader)
+    ///
+    /// Both bindings are visible only to the fragment shader stage.
     pub fn bind_group_layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
         wgpu::BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout"),
@@ -58,7 +112,50 @@ impl TextureManager {
         }
     }
 
-    /// Upload a texture to the GPU and return a handle
+    /// Upload a texture to the GPU and return a handle.
+    ///
+    /// Uploads texture data to the GPU and returns a handle for accessing it.
+    /// If a texture with the same name already exists, returns the existing handle
+    /// without uploading again (caching).
+    ///
+    /// # Arguments
+    ///
+    /// - `device`: The GPU device to create resources on
+    /// - `queue`: The GPU queue for uploading data
+    /// - `name`: Unique name for the texture (used for caching and lookup)
+    /// - `texture`: The CPU-side texture data to upload
+    ///
+    /// # Returns
+    ///
+    /// A `TextureHandle` that can be used to retrieve the GPU texture.
+    ///
+    /// # Caching
+    ///
+    /// ```rust,no_run
+    /// // First call: uploads to GPU
+    /// let handle1 = texture_manager.upload_texture(
+    ///     &device, &queue, "stone".to_string(), &texture
+    /// );
+    ///
+    /// // Second call: returns cached handle (no upload)
+    /// let handle2 = texture_manager.upload_texture(
+    ///     &device, &queue, "stone".to_string(), &texture
+    /// );
+    ///
+    /// assert_eq!(handle1, handle2);
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// let texture = Texture::from_file("assets/stone.png")?;
+    /// let handle = texture_manager.upload_texture(
+    ///     &device,
+    ///     &queue,
+    ///     "stone_wall".to_string(),
+    ///     &texture
+    /// );
+    /// ```
     pub fn upload_texture(
         &mut self,
         device: &wgpu::Device,

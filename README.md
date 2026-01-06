@@ -7,11 +7,14 @@ A modern, modular 3D game engine built from scratch in Rust with native desktop 
 ### Core Engine
 
 - **Modern 3D Rendering** (wgpu)
-  - PBR-style lighting
+  - PBR-style lighting with texture mapping
+  - **Texture rendering with AI-generated assets**
+  - **Push constants for efficient multi-object rendering**
   - Multi-mesh rendering with frustum culling
   - Depth testing and shadows
   - Custom shaders (WGSL)
   - LOD (Level of Detail) system
+  - Skybox support
 
 - **Scene Management**
   - Entity-component system
@@ -21,8 +24,10 @@ A modern, modular 3D game engine built from scratch in Rust with native desktop 
 
 - **Asset Pipeline**
   - GLTF model loading
-  - Texture loading
-  - Procedural mesh generation (cube, plane)
+  - **Texture loading and management system**
+  - **GPU texture upload with automatic format conversion**
+  - **AI asset generation via Stable Diffusion integration**
+  - Procedural mesh generation (cube, plane, colored meshes)
   - Asset caching system
   - **Hot-reload for textures, models, and scripts**
 
@@ -78,6 +83,13 @@ A modern, modular 3D game engine built from scratch in Rust with native desktop 
   - JSON-RPC over stdio
   - Real-time communication with editor
 
+- **Stable Diffusion Integration**
+  - **AI-powered texture generation via ComfyUI**
+  - Local Stable Diffusion server support
+  - Procedural asset creation for terrains, materials, and structures
+  - Network-wide serving for collaborative workflows
+  - Generated assets automatically loaded and rendered
+
 ### Game UI Framework
 
 - **Widget System**
@@ -118,9 +130,13 @@ cargo run --bin engine-mcp-server
 - Escape: Exit
 
 **Demo Scene:**
-- Watch two cubes fall and collide with physics
-- Observe scripted rotation on the cubes
-- Gravity simulation at -9.81 m/s²
+- **Castle and Countryside** - Complete medieval scene with AI-generated textures
+  - 4 castle walls with defensive towers
+  - Central keep fortress
+  - Moat surrounding the castle
+  - Grass terrain with rolling hills
+  - 19 entities rendered simultaneously with push constants
+  - Textured with Stable Diffusion generated assets (stone, grass, water)
 
 ## MCP Integration
 
@@ -169,17 +185,23 @@ causality-engine/
 ├── crates/
 │   ├── engine-core/          # Core systems (timing, input, build system)
 │   ├── engine-render/        # wgpu rendering, camera, culling, LOD
+│   │   ├── gpu_texture.rs    # GPU texture management
+│   │   ├── texture_manager.rs # Texture loading and caching
+│   │   └── shaders/          # WGSL shaders (PBR, post-processing)
 │   ├── engine-physics/       # Rapier3D wrapper, ragdoll physics
 │   ├── engine-scripting/     # Rhai runtime, API bindings, hot-reload
-│   ├── engine-assets/        # GLTF loading, hot-reload manager
+│   ├── engine-assets/        # GLTF loading, texture loading, hot-reload
 │   ├── engine-scene/         # Entity system, scene graph
 │   ├── engine-audio/         # 3D spatial audio system
 │   ├── engine-particles/     # Particle system
 │   ├── engine-ui/            # Game UI framework (widgets, canvas)
 │   ├── engine-editor/        # Editor application with egui UI
 │   └── engine-mcp-server/    # MCP server for Claude Code integration
+├── generated_assets/         # AI-generated textures and models
+│   └── textures/            # Stable Diffusion generated textures
 ├── mcp-config.json           # MCP server configuration
 ├── MCP_GUIDE.md              # MCP usage documentation
+├── TEXTURE_SYSTEM.md         # Texture system documentation
 └── README.md                 # This file
 ```
 
@@ -201,13 +223,20 @@ causality-engine/
 - ✅ **Priority 3**: Ragdoll physics
 - ✅ **Priority 5**: Frustum culling, LOD system
 - ✅ **Priority 6**: Build system, input system, game UI framework
+- ✅ **Phase 8**: Texture rendering system
+  - ✅ GPU texture management
+  - ✅ Texture loading with automatic format conversion
+  - ✅ Push constants for multi-object rendering
+  - ✅ AI-generated asset integration (Stable Diffusion)
+  - ✅ Castle and countryside demo scene
 
 ### In Progress 📋
 
-- **Phase 8**: Advanced rendering features
+- **Phase 9**: Advanced rendering features
   - Shadow mapping
-  - Post-processing effects
+  - Post-processing effects (bloom, tone mapping)
   - Advanced PBR materials
+  - Normal mapping
 
 ## Technology Stack
 

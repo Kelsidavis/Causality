@@ -1,13 +1,57 @@
 // GPU texture handle and management
+//!
+//! This module provides GPU-side texture management for the Causality Engine.
+//! Textures are uploaded to the GPU and made available for rendering through
+//! bind groups that can be bound to shader pipelines.
+//!
+//! # Features
+//!
+//! - Automatic format conversion (RGB8 → RGBA8)
+//! - sRGB color space support for correct color reproduction
+//! - Linear filtering with repeat wrapping
+//! - Fallback white texture for missing textures
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use engine_assets::Texture;
+//! use engine_render::GpuTexture;
+//!
+//! // Load texture from disk
+//! let texture = Texture::from_file("assets/stone.png")?;
+//!
+//! // Upload to GPU
+//! let gpu_texture = GpuTexture::from_cpu_texture(
+//!     &device,
+//!     &queue,
+//!     &texture,
+//!     &bind_group_layout
+//! );
+//!
+//! // Use in rendering
+//! render_pass.set_bind_group(1, &gpu_texture.bind_group, &[]);
+//! ```
 
 use engine_assets::Texture;
-use wgpu::util::DeviceExt;
 
-/// Handle to a GPU texture
+/// Handle to a GPU texture.
+///
+/// Provides type-safe access to textures in the texture manager.
+/// Handles are cheap to copy and can be stored in components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextureHandle(pub usize);
 
-/// GPU texture with view and sampler
+/// GPU texture with all resources needed for rendering.
+///
+/// Contains the GPU texture, view for sampling, sampler configuration,
+/// and a pre-built bind group ready to be bound to the pipeline.
+///
+/// # Fields
+///
+/// - `texture`: The GPU texture resource
+/// - `view`: Texture view for shader sampling
+/// - `sampler`: Sampling configuration (linear filtering, repeat wrap)
+/// - `bind_group`: Pre-configured bind group for binding to pipeline
 pub struct GpuTexture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
@@ -16,7 +60,43 @@ pub struct GpuTexture {
 }
 
 impl GpuTexture {
-    /// Create a GPU texture from CPU texture data
+    /// Create a GPU texture from CPU texture data.
+    ///
+    /// Uploads texture data to the GPU and creates all necessary resources
+    /// for rendering (texture, view, sampler, bind group).
+    ///
+    /// # Arguments
+    ///
+    /// - `device`: The GPU device to create resources on
+    /// - `queue`: The GPU queue for uploading texture data
+    /// - `texture`: The CPU-side texture data to upload
+    /// - `bind_group_layout`: The bind group layout for creating the bind group
+    ///
+    /// # Format Conversion
+    ///
+    /// - **RGBA8** → `Rgba8UnormSrgb` (direct)
+    /// - **RGB8** → `Rgba8UnormSrgb` (adds alpha channel = 255)
+    /// - **R8** → `R8Unorm` (grayscale)
+    ///
+    /// All textures use sRGB color space for correct color reproduction.
+    ///
+    /// # Sampler Configuration
+    ///
+    /// - Address mode: Repeat (for tiling)
+    /// - Mag/Min filter: Linear (smooth interpolation)
+    /// - Mipmap filter: Linear (no mipmaps currently)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// let texture = Texture::from_file("stone.png")?;
+    /// let gpu_texture = GpuTexture::from_cpu_texture(
+    ///     &device,
+    ///     &queue,
+    ///     &texture,
+    ///     &layout
+    /// );
+    /// ```
     pub fn from_cpu_texture(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -116,7 +196,28 @@ impl GpuTexture {
         }
     }
 
-    /// Create a white 1x1 texture (default/fallback)
+    /// Create a white 1x1 texture (default/fallback).
+    ///
+    /// Creates a solid white texture that can be used as a fallback
+    /// when a texture is missing or as a default for untextured meshes.
+    ///
+    /// The white color (255, 255, 255, 255) acts as a neutral multiplier,
+    /// allowing vertex colors and lighting to show through without tinting.
+    ///
+    /// # Arguments
+    ///
+    /// - `device`: The GPU device to create the texture on
+    /// - `queue`: The GPU queue for uploading data
+    /// - `bind_group_layout`: The bind group layout
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// let fallback = GpuTexture::white_texture(&device, &queue, &layout);
+    /// // Use when texture is missing
+    /// let texture = texture_manager.get_texture(handle)
+    ///     .unwrap_or(&fallback);
+    /// ```
     pub fn white_texture(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
