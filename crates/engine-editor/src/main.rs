@@ -531,6 +531,18 @@ impl EditorApp {
             }
         }
 
+        // Check for screenshot trigger and capture using system tool
+        let screenshot_trigger = std::env::temp_dir().join("game-engine-screenshot-trigger");
+        if screenshot_trigger.exists() {
+            let _ = std::fs::remove_file(&screenshot_trigger);
+            let screenshot_path = "/tmp/editor_screenshot.png";
+            // Use import (ImageMagick) to capture the active window
+            let _ = std::process::Command::new("import")
+                .args(&["-window", "root", screenshot_path])
+                .output();
+            log::info!("Screenshot captured to {}", screenshot_path);
+        }
+
         // Process hot reload events
         if let Some(hot_reload) = &mut self.hot_reload {
             let events = hot_reload.poll_events();
