@@ -1,17 +1,86 @@
 // MCP Tools - Operations that Claude Code can call
 
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fs;
+use std::path::PathBuf;
 use std::collections::HashMap;
+use std::time::{Duration, SystemTime};
 
+/// File-based IPC for communication with the editor
 pub struct ToolRegistry {
-    // In a real implementation, this would connect to the editor via IPC
-    // For now, we'll simulate operations
+    command_file: PathBuf,
+    response_file: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IpcCommand {
+    id: u64,
+    command: String,
+    args: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IpcResponse {
+    id: u64,
+    success: bool,
+    result: Value,
 }
 
 impl ToolRegistry {
     pub fn new() -> Self {
-        Self {}
+        let tmp_dir = std::env::temp_dir();
+        Self {
+            command_file: tmp_dir.join("game-engine-mcp-command.json"),
+            response_file: tmp_dir.join("game-engine-mcp-response.json"),
+        }
+    }
+
+    /// Send a command to the editor and wait for response
+    fn send_command(&self, command: &str, args: Value) -> Result<Value> {
+        let id = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_micros() as u64;
+
+        let ipc_command = IpcCommand {
+            id,
+            command: command.to_string(),
+            args,
+        };
+
+        // Write command to file
+        let command_json = serde_json::to_string(&ipc_command)?;
+        fs::write(&self.command_file, command_json)?;
+        log::debug!("Wrote command to {:?}", self.command_file);
+
+        // Wait for response (with timeout)
+        let timeout = Duration::from_secs(5);
+        let start = SystemTime::now();
+
+        loop {
+            if start.elapsed()? > timeout {
+                return Err(anyhow!("IPC timeout waiting for editor response"));
+            }
+
+            if self.response_file.exists() {
+                let response_json = fs::read_to_string(&self.response_file)?;
+                let response: IpcResponse = serde_json::from_str(&response_json)?;
+
+                if response.id == id {
+                    // Remove response file for next command
+                    let _ = fs::remove_file(&self.response_file);
+
+                    if response.success {
+                        return Ok(response.result);
+                    } else {
+                        return Err(anyhow!("Editor error: {:?}", response.result));
+                    }
+                }
+            }
+
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     pub fn list_tools(&self) -> Vec<Value> {
@@ -192,12 +261,16 @@ impl ToolRegistry {
             })
             .unwrap_or_else(|| vec![0.0, 0.0, 0.0]);
 
-        // TODO: Send IPC message to editor to create entity
         log::info!(
-            "Would create entity '{}' at position {:?}",
+            "Creating entity '{}' at position {:?}",
             name,
             position
         );
+
+        let result = self.send_command("create_entity", json!({
+            "name": name,
+            "position": position
+        }))?;
 
         Ok(json!({
             "content": [{
@@ -225,19 +298,34 @@ impl ToolRegistry {
     }
 
     fn list_entities(&self, _args: &Value) -> Result<Value> {
-        // TODO: Query editor via IPC
-        log::info!("Would list all entities");
+        log::info!("Listing all entities");
 
-        // Simulated response
-        let entities = vec!["Falling Cube", "Ground Plane", "Falling Small Cube"];
-        let entity_list = entities.join(", ");
+        let result = self.send_command("list_entities", json!({}))?;
 
-        Ok(json!({
-            "content": [{
-                "type": "text",
-                "text": format!("Entities in scene:\n- {}", entities.join("\n- "))
-            }]
-        }))
+        if let Some(entities) = result.get("entities").and_then(|v| v.as_array()) {
+            let entity_names: Vec<String> = entities
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": if entity_names.is_empty() {
+                        "No entities in scene".to_string()
+                    } else {
+                        format!("Entities in scene:\n- {}", entity_names.join("\n- "))
+                    }
+                }]
+            }))
+        } else {
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": "No entities in scene"
+                }]
+            }))
+        }
     }
 
     fn get_entity_info(&self, args: &Value) -> Result<Value> {

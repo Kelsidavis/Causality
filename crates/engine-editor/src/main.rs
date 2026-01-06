@@ -2,6 +2,7 @@
 
 mod ui;
 pub mod ipc;
+mod file_ipc;
 
 use anyhow::Result;
 use engine_assets::{manager::AssetManager, mesh::Mesh, HotReloadWatcher, ReloadEvent};
@@ -46,6 +47,7 @@ struct EditorApp {
     hot_reload: Option<HotReloadWatcher>,
     script_paths: std::collections::HashMap<EntityId, std::path::PathBuf>,
     ipc_channel: Option<ipc::IpcChannel>,
+    file_ipc: Option<file_ipc::FileIpcHandler>,
 }
 
 struct EguiState {
@@ -93,6 +95,7 @@ impl EditorApp {
             hot_reload: None,
             script_paths: std::collections::HashMap::new(),
             ipc_channel: None,
+            file_ipc: Some(file_ipc::FileIpcHandler::new()),
         }
     }
 
@@ -319,6 +322,13 @@ fn update(ctx) {
 
         // Fixed time step for physics (60fps)
         let dt = 1.0 / 60.0;
+
+        // Process file-based IPC commands from MCP server
+        if let Some(file_ipc) = &mut self.file_ipc {
+            if let Err(e) = file_ipc.poll_commands(scene) {
+                log::error!("File IPC error: {}", e);
+            }
+        }
 
         // Process hot reload events
         if let Some(hot_reload) = &mut self.hot_reload {

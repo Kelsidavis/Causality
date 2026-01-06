@@ -1068,6 +1068,7 @@ dependencies = [
  "log",
  "pollster",
  "serde",
+ "serde_json",
  "wgpu",
  "winit",
 ]
