@@ -137,71 +137,28 @@ impl EditorApp {
         let asset_manager = AssetManager::new(std::env::current_dir()?.join("assets"));
         let mut mesh_manager = MeshManager::new();
 
-        // Create SIMPLE test scene with obvious cubes
-        let mut scene = Scene::new("Simple Test Scene".to_string());
+        // Create castle and countryside scene
+        let mut scene = Scene::new("Castle and Countryside".to_string());
 
-        // Red cube
-        let red_cube = Mesh::cube_with_color(Vec3::new(1.0, 0.0, 0.0));
-        let red_vertices = convert_mesh_to_gpu(&red_cube);
-        mesh_manager.upload_mesh(&renderer.device, "red_cube".to_string(), &red_vertices, &red_cube.indices);
+        // Create colored cube meshes for the scene
+        // Stone gray for castle structures
+        let stone_cube = Mesh::cube_with_color(Vec3::new(0.6, 0.6, 0.65));
+        let stone_vertices = convert_mesh_to_gpu(&stone_cube);
+        mesh_manager.upload_mesh(&renderer.device, "stone_cube".to_string(), &stone_vertices, &stone_cube.indices);
 
-        // Green cube
-        let green_cube = Mesh::cube_with_color(Vec3::new(0.0, 1.0, 0.0));
-        let green_vertices = convert_mesh_to_gpu(&green_cube);
-        mesh_manager.upload_mesh(&renderer.device, "green_cube".to_string(), &green_vertices, &green_cube.indices);
+        // Grass green for terrain
+        let grass_cube = Mesh::cube_with_color(Vec3::new(0.3, 0.6, 0.2));
+        let grass_vertices = convert_mesh_to_gpu(&grass_cube);
+        mesh_manager.upload_mesh(&renderer.device, "grass_cube".to_string(), &grass_vertices, &grass_cube.indices);
 
-        // Blue cube
-        let blue_cube = Mesh::cube_with_color(Vec3::new(0.0, 0.0, 1.0));
-        let blue_vertices = convert_mesh_to_gpu(&blue_cube);
-        mesh_manager.upload_mesh(&renderer.device, "blue_cube".to_string(), &blue_vertices, &blue_cube.indices);
+        // Water blue-green for moat
+        let water_cube = Mesh::cube_with_color(Vec3::new(0.2, 0.4, 0.6));
+        let water_vertices = convert_mesh_to_gpu(&water_cube);
+        mesh_manager.upload_mesh(&renderer.device, "water_cube".to_string(), &water_vertices, &water_cube.indices);
 
         let mut entity_ids = Vec::new();
 
-        // Red cube at origin
-        let red_id = scene.create_entity("Red Cube".to_string());
-        if let Some(entity) = scene.get_entity_mut(red_id) {
-            entity.transform.position = Vec3::new(0.0, 0.0, 0.0);
-            entity.transform.scale = Vec3::ONE;
-            entity.add_component(MeshRenderer {
-                mesh_path: "red_cube".to_string(),
-                material_path: None,
-            });
-            log::info!("Created RED cube at {:?}", entity.transform.position);
-        }
-        entity_ids.push(red_id);
-
-        // Green cube to the right
-        let green_id = scene.create_entity("Green Cube".to_string());
-        if let Some(entity) = scene.get_entity_mut(green_id) {
-            entity.transform.position = Vec3::new(2.0, 0.0, 0.0);
-            entity.transform.scale = Vec3::ONE;
-            entity.add_component(MeshRenderer {
-                mesh_path: "green_cube".to_string(),
-                material_path: None,
-            });
-            log::info!("Created GREEN cube at {:?}", entity.transform.position);
-        }
-        entity_ids.push(green_id);
-
-        // Blue cube above
-        let blue_id = scene.create_entity("Blue Cube".to_string());
-        if let Some(entity) = scene.get_entity_mut(blue_id) {
-            entity.transform.position = Vec3::new(0.0, 2.0, 0.0);
-            entity.transform.scale = Vec3::ONE;
-            entity.add_component(MeshRenderer {
-                mesh_path: "blue_cube".to_string(),
-                material_path: None,
-            });
-            log::info!("Created BLUE cube at {:?}", entity.transform.position);
-        }
-        entity_ids.push(blue_id);
-
-        // Store entity IDs for reference
-        let entity_ids = entity_ids;
-
-        // Skip the old castle scene code
-        /*
-        // === OLD CASTLE SCENE - REMOVED FOR TESTING ===
+        // === CASTLE AND COUNTRYSIDE SCENE ===
         // Ground plane - scaled to fit view
         let countryside_id = scene.create_entity("Countryside Ground".to_string());
         if let Some(entity) = scene.get_entity_mut(countryside_id) {
@@ -376,8 +333,7 @@ impl EditorApp {
             entity_ids.push(hill_id);
         }
 
-        */
-        // End of commented castle scene
+        log::info!("Created castle scene with {} entities", entity_ids.len());
 
         // Initialize physics world
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
