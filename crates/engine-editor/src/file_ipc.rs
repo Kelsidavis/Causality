@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use engine_scene::Scene;
 use engine_scene::components::MeshRenderer;
 use engine_scripting::Script;
+use engine_physics::{RigidBody, RigidBodyType, Collider, ColliderShape};
 use glam::Vec3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -393,6 +394,144 @@ impl FileIpcHandler {
                         success: false,
                         result: json!({
                             "error": format!("Failed to create entity '{}'", entity_name)
+                        }),
+                    }
+                }
+            }
+            "add_rigidbody" => {
+                let entity_name = args
+                    .get("entity_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let body_type_str = args
+                    .get("body_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("dynamic");
+
+                let mass = args
+                    .get("mass")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0) as f32;
+
+                // Find entity by name
+                let entity_id_opt = scene
+                    .entities()
+                    .find(|e| e.name == entity_name)
+                    .map(|e| e.id);
+
+                if let Some(entity_id) = entity_id_opt {
+                    if let Some(entity) = scene.get_entity_mut(entity_id) {
+                        // Create rigid body based on type
+                        let rigidbody = match body_type_str {
+                            "static" => RigidBody::static_body(),
+                            "kinematic" => RigidBody::kinematic(),
+                            "dynamic" | _ => RigidBody::dynamic(mass),
+                        };
+
+                        entity.add_component(rigidbody);
+
+                        log::info!("Added {} rigidbody to entity '{}'", body_type_str, entity_name);
+
+                        IpcResponse {
+                            id,
+                            success: true,
+                            result: json!({
+                                "rigidbody_added": true,
+                                "entity_name": entity_name,
+                                "body_type": body_type_str,
+                                "mass": mass
+                            }),
+                        }
+                    } else {
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "error": format!("Failed to get entity '{}'", entity_name)
+                            }),
+                        }
+                    }
+                } else {
+                    IpcResponse {
+                        id,
+                        success: false,
+                        result: json!({
+                            "error": format!("Entity '{}' not found", entity_name)
+                        }),
+                    }
+                }
+            }
+            "add_collider" => {
+                let entity_name = args
+                    .get("entity_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let shape_type = args
+                    .get("shape_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("box");
+
+                // Find entity by name
+                let entity_id_opt = scene
+                    .entities()
+                    .find(|e| e.name == entity_name)
+                    .map(|e| e.id);
+
+                if let Some(entity_id) = entity_id_opt {
+                    if let Some(entity) = scene.get_entity_mut(entity_id) {
+                        // Parse size/radius parameters
+                        let size = args.get("size").and_then(|v| v.as_array()).map(|arr| {
+                            Vec3::new(
+                                arr.get(0).and_then(|v| v.as_f64()).unwrap_or(0.5) as f32,
+                                arr.get(1).and_then(|v| v.as_f64()).unwrap_or(0.5) as f32,
+                                arr.get(2).and_then(|v| v.as_f64()).unwrap_or(0.5) as f32,
+                            )
+                        }).unwrap_or(Vec3::splat(0.5));
+
+                        let radius = args.get("radius").and_then(|v| v.as_f64()).unwrap_or(0.5) as f32;
+
+                        // Create collider based on type
+                        let collider = match shape_type {
+                            "sphere" => Collider::sphere(radius),
+                            "capsule" => {
+                                let height = args.get("height").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+                                Collider::capsule(height / 2.0, radius)
+                            },
+                            "box" | _ => Collider::box_collider(size),
+                        };
+
+                        entity.add_component(collider);
+
+                        log::info!("Added {} collider to entity '{}'", shape_type, entity_name);
+
+                        IpcResponse {
+                            id,
+                            success: true,
+                            result: json!({
+                                "collider_added": true,
+                                "entity_name": entity_name,
+                                "shape_type": shape_type,
+                                "size": [size.x, size.y, size.z],
+                                "radius": radius
+                            }),
+                        }
+                    } else {
+                        IpcResponse {
+                            id,
+                            success: false,
+                            result: json!({
+                                "error": format!("Failed to get entity '{}'", entity_name)
+                            }),
+                        }
+                    }
+                } else {
+                    IpcResponse {
+                        id,
+                        success: false,
+                        result: json!({
+                            "error": format!("Entity '{}' not found", entity_name)
                         }),
                     }
                 }

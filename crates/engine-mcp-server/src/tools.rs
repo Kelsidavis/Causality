@@ -215,6 +215,59 @@ impl ToolRegistry {
                     "properties": {}
                 }
             }),
+            json!({
+                "name": "add_rigidbody",
+                "description": "Add a physics rigid body component to an entity",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "entity_name": {
+                            "type": "string",
+                            "description": "Name of the entity"
+                        },
+                        "body_type": {
+                            "type": "string",
+                            "description": "Body type: 'dynamic', 'kinematic', or 'static' (default: dynamic)"
+                        },
+                        "mass": {
+                            "type": "number",
+                            "description": "Mass for dynamic bodies (default: 1.0)"
+                        }
+                    },
+                    "required": ["entity_name"]
+                }
+            }),
+            json!({
+                "name": "add_collider",
+                "description": "Add a physics collider component to an entity",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "entity_name": {
+                            "type": "string",
+                            "description": "Name of the entity"
+                        },
+                        "shape_type": {
+                            "type": "string",
+                            "description": "Shape: 'box', 'sphere', or 'capsule' (default: box)"
+                        },
+                        "size": {
+                            "type": "array",
+                            "description": "Size [x, y, z] for box collider",
+                            "items": { "type": "number" }
+                        },
+                        "radius": {
+                            "type": "number",
+                            "description": "Radius for sphere and capsule colliders (default: 0.5)"
+                        },
+                        "height": {
+                            "type": "number",
+                            "description": "Height for capsule collider (default: 1.0)"
+                        }
+                    },
+                    "required": ["entity_name"]
+                }
+            }),
         ]
     }
 
@@ -240,6 +293,8 @@ impl ToolRegistry {
             "add_script" => self.add_script(arguments),
             "load_model" => self.load_model(arguments),
             "get_scene_info" => self.get_scene_info(arguments),
+            "add_rigidbody" => self.add_rigidbody(arguments),
+            "add_collider" => self.add_collider(arguments),
             _ => Err(anyhow!("Unknown tool: {}", tool_name)),
         }
     }
@@ -541,5 +596,98 @@ impl ToolRegistry {
                 }]
             }))
         }
+    }
+
+    fn add_rigidbody(&self, args: &Value) -> Result<Value> {
+        let entity_name = args
+            .get("entity_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing entity_name"))?;
+
+        let body_type = args
+            .get("body_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("dynamic");
+
+        let mass = args
+            .get("mass")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+
+        log::info!("Adding {} rigidbody to entity '{}'", body_type, entity_name);
+
+        let result = self.send_command("add_rigidbody", json!({
+            "entity_name": entity_name,
+            "body_type": body_type,
+            "mass": mass,
+        }))?;
+
+        let success = result.get("rigidbody_added").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            format!("Successfully added {} rigidbody to entity '{}'", body_type, entity_name)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
+    }
+
+    fn add_collider(&self, args: &Value) -> Result<Value> {
+        let entity_name = args
+            .get("entity_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing entity_name"))?;
+
+        let shape_type = args
+            .get("shape_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("box");
+
+        let size = args.get("size").and_then(|v| v.as_array()).cloned();
+        let radius = args.get("radius").and_then(|v| v.as_f64()).unwrap_or(0.5);
+        let height = args.get("height").and_then(|v| v.as_f64());
+
+        log::info!("Adding {} collider to entity '{}'", shape_type, entity_name);
+
+        let mut collider_args = json!({
+            "entity_name": entity_name,
+            "shape_type": shape_type,
+            "radius": radius,
+        });
+
+        if let Some(sz) = size {
+            collider_args["size"] = serde_json::Value::Array(sz);
+        }
+
+        if let Some(h) = height {
+            collider_args["height"] = json!(h);
+        }
+
+        let result = self.send_command("add_collider", collider_args)?;
+
+        let success = result.get("collider_added").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = if success {
+            format!("Successfully added {} collider to entity '{}'", shape_type, entity_name)
+        } else {
+            result.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": message
+            }]
+        }))
     }
 }
