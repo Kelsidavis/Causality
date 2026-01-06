@@ -18,3 +18,7 @@ Thumbs.db
 
 # Temp files
 *.tmp
+
+# ComfyUI and generated assets
+ComfyUI/
+generated_assets/
