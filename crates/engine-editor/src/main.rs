@@ -141,31 +141,71 @@ impl EditorApp {
         let asset_manager = AssetManager::new(std::env::current_dir()?.join("assets"));
         let mut mesh_manager = MeshManager::new();
 
-        // Create lifelike castle and countryside scene with vertex colors
-        let mut scene = Scene::new("Castle and Countryside".to_string());
+        // Create SIMPLE test scene with obvious cubes
+        let mut scene = Scene::new("Simple Test Scene".to_string());
 
-        // Prepare colored meshes
-        // Stone gray color for castle walls (weathered medieval stone)
-        let stone_color = Vec3::new(0.55, 0.55, 0.55);
-        let stone_cube = Mesh::cube_with_color(stone_color);
-        let stone_vertices = convert_mesh_to_gpu(&stone_cube);
-        mesh_manager.upload_mesh(&renderer.device, "stone_cube".to_string(), &stone_vertices, &stone_cube.indices);
+        // Red cube
+        let red_cube = Mesh::cube_with_color(Vec3::new(1.0, 0.0, 0.0));
+        let red_vertices = convert_mesh_to_gpu(&red_cube);
+        mesh_manager.upload_mesh(&renderer.device, "red_cube".to_string(), &red_vertices, &red_cube.indices);
 
-        // Grass green for countryside terrain
-        let grass_color = Vec3::new(0.3, 0.6, 0.2);
-        let grass_cube = Mesh::cube_with_color(grass_color);
-        let grass_vertices = convert_mesh_to_gpu(&grass_cube);
-        mesh_manager.upload_mesh(&renderer.device, "grass_cube".to_string(), &grass_vertices, &grass_cube.indices);
+        // Green cube
+        let green_cube = Mesh::cube_with_color(Vec3::new(0.0, 1.0, 0.0));
+        let green_vertices = convert_mesh_to_gpu(&green_cube);
+        mesh_manager.upload_mesh(&renderer.device, "green_cube".to_string(), &green_vertices, &green_cube.indices);
 
-        // Water blue-green for moat
-        let water_color = Vec3::new(0.2, 0.5, 0.6);
-        let water_cube = Mesh::cube_with_color(water_color);
-        let water_vertices = convert_mesh_to_gpu(&water_cube);
-        mesh_manager.upload_mesh(&renderer.device, "water_cube".to_string(), &water_vertices, &water_cube.indices);
+        // Blue cube
+        let blue_cube = Mesh::cube_with_color(Vec3::new(0.0, 0.0, 1.0));
+        let blue_vertices = convert_mesh_to_gpu(&blue_cube);
+        mesh_manager.upload_mesh(&renderer.device, "blue_cube".to_string(), &blue_vertices, &blue_cube.indices);
 
         let mut entity_ids = Vec::new();
 
-        // === COUNTRYSIDE TERRAIN ===
+        // Red cube at origin
+        let red_id = scene.create_entity("Red Cube".to_string());
+        if let Some(entity) = scene.get_entity_mut(red_id) {
+            entity.transform.position = Vec3::new(0.0, 0.0, 0.0);
+            entity.transform.scale = Vec3::ONE;
+            entity.add_component(MeshRenderer {
+                mesh_path: "red_cube".to_string(),
+                material_path: None,
+            });
+            log::info!("Created RED cube at {:?}", entity.transform.position);
+        }
+        entity_ids.push(red_id);
+
+        // Green cube to the right
+        let green_id = scene.create_entity("Green Cube".to_string());
+        if let Some(entity) = scene.get_entity_mut(green_id) {
+            entity.transform.position = Vec3::new(2.0, 0.0, 0.0);
+            entity.transform.scale = Vec3::ONE;
+            entity.add_component(MeshRenderer {
+                mesh_path: "green_cube".to_string(),
+                material_path: None,
+            });
+            log::info!("Created GREEN cube at {:?}", entity.transform.position);
+        }
+        entity_ids.push(green_id);
+
+        // Blue cube above
+        let blue_id = scene.create_entity("Blue Cube".to_string());
+        if let Some(entity) = scene.get_entity_mut(blue_id) {
+            entity.transform.position = Vec3::new(0.0, 2.0, 0.0);
+            entity.transform.scale = Vec3::ONE;
+            entity.add_component(MeshRenderer {
+                mesh_path: "blue_cube".to_string(),
+                material_path: None,
+            });
+            log::info!("Created BLUE cube at {:?}", entity.transform.position);
+        }
+        entity_ids.push(blue_id);
+
+        // Store entity IDs for reference
+        let entity_ids = entity_ids;
+
+        // Skip the old castle scene code
+        /*
+        // === OLD CASTLE SCENE - REMOVED FOR TESTING ===
         // Ground plane - scaled to fit view
         let countryside_id = scene.create_entity("Countryside Ground".to_string());
         if let Some(entity) = scene.get_entity_mut(countryside_id) {
@@ -340,8 +380,8 @@ impl EditorApp {
             entity_ids.push(hill_id);
         }
 
-        // Store entity IDs for reference
-        let entity_ids = entity_ids;
+        */
+        // End of commented castle scene
 
         // Initialize physics world
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
@@ -787,7 +827,7 @@ impl EditorApp {
             }
         }
 
-        // Render all entities - each with its own render pass to ensure uniform buffer updates work
+        // Render all entities using the old working method (one at a time with clear flag)
         let mut first_mesh = wgpu_state.skybox.is_none();
         for entity in scene.entities() {
             if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
@@ -795,62 +835,17 @@ impl EditorApp {
                     if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
                         let world_matrix = scene.world_matrix(entity.id);
 
-                        // Update uniforms BEFORE starting render pass
-                        let uniforms = Uniforms {
-                            view_proj: view_proj.to_cols_array_2d(),
-                            model: world_matrix.to_cols_array_2d(),
-                        };
-                        wgpu_state.renderer.queue.write_buffer(
-                            &wgpu_state.renderer.uniform_buffer,
-                            0,
-                            bytemuck::cast_slice(&[uniforms]),
+                        wgpu_state.renderer.render_mesh(
+                            &mut encoder,
+                            &view,
+                            &wgpu_state.depth_texture,
+                            gpu_mesh,
+                            view_proj,
+                            world_matrix,
+                            first_mesh,
                         );
-
-                        // Create render pass for this mesh
-                        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("Mesh Render Pass"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: if first_mesh {
-                                        wgpu::LoadOp::Clear(wgpu::Color {
-                                            r: 0.1,
-                                            g: 0.2,
-                                            b: 0.3,
-                                            a: 1.0,
-                                        })
-                                    } else {
-                                        wgpu::LoadOp::Load // Preserve previous meshes
-                                    },
-                                    store: wgpu::StoreOp::Store,
-                                },
-                                depth_slice: None,
-                            })],
-                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: &wgpu_state.depth_texture,
-                                depth_ops: Some(wgpu::Operations {
-                                    load: if first_mesh {
-                                        wgpu::LoadOp::Clear(1.0)
-                                    } else {
-                                        wgpu::LoadOp::Load
-                                    },
-                                    store: wgpu::StoreOp::Store,
-                                }),
-                                stencil_ops: None,
-                            }),
-                            timestamp_writes: None,
-                            occlusion_query_set: None,
-                        });
-
-                        render_pass.set_pipeline(&wgpu_state.renderer.render_pipeline);
-                        render_pass.set_bind_group(0, &wgpu_state.renderer.uniform_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
-
                         first_mesh = false;
-                    }  // render_pass dropped here
+                    }
                 }
             }
         }
