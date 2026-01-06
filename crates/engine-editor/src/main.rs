@@ -134,18 +134,27 @@ impl EditorApp {
         let asset_manager = AssetManager::new(std::env::current_dir()?.join("assets"));
         let mut mesh_manager = MeshManager::new();
 
-        // Create lifelike castle and countryside scene
-        // AI-generated textures: castle_wall (generated_40ca92c1.png), grass (generated_aa0d9078.png), water (generated_2cbaf2cc.png)
+        // Create lifelike castle and countryside scene with vertex colors
         let mut scene = Scene::new("Castle and Countryside".to_string());
 
-        // Prepare meshes
-        let cube_mesh = Mesh::cube();
-        let cube_vertices = convert_mesh_to_gpu(&cube_mesh);
-        mesh_manager.upload_mesh(&renderer.device, "cube".to_string(), &cube_vertices, &cube_mesh.indices);
+        // Prepare colored meshes
+        // Stone gray color for castle walls (weathered medieval stone)
+        let stone_color = Vec3::new(0.55, 0.55, 0.55);
+        let stone_cube = Mesh::cube_with_color(stone_color);
+        let stone_vertices = convert_mesh_to_gpu(&stone_cube);
+        mesh_manager.upload_mesh(&renderer.device, "stone_cube".to_string(), &stone_vertices, &stone_cube.indices);
 
-        let plane_mesh = Mesh::plane(1.0);
-        let plane_vertices = convert_mesh_to_gpu(&plane_mesh);
-        mesh_manager.upload_mesh(&renderer.device, "plane".to_string(), &plane_vertices, &plane_mesh.indices);
+        // Grass green for countryside terrain
+        let grass_color = Vec3::new(0.3, 0.6, 0.2);
+        let grass_cube = Mesh::cube_with_color(grass_color);
+        let grass_vertices = convert_mesh_to_gpu(&grass_cube);
+        mesh_manager.upload_mesh(&renderer.device, "grass_cube".to_string(), &grass_vertices, &grass_cube.indices);
+
+        // Water blue-green for moat
+        let water_color = Vec3::new(0.2, 0.5, 0.6);
+        let water_cube = Mesh::cube_with_color(water_color);
+        let water_vertices = convert_mesh_to_gpu(&water_cube);
+        mesh_manager.upload_mesh(&renderer.device, "water_cube".to_string(), &water_vertices, &water_cube.indices);
 
         let mut entity_ids = Vec::new();
 
@@ -159,8 +168,8 @@ impl EditorApp {
                 scale: Vec3::new(50.0, 0.2, 50.0), // Vast countryside
             };
             entity.add_component(MeshRenderer {
-                mesh_path: "cube".to_string(),
-                material_path: Some("generated_aa0d9078.png".to_string()), // Grass texture
+                mesh_path: "grass_cube".to_string(),
+                material_path: None,
             });
             entity.add_component(RigidBody::static_body());
             entity.add_component(Collider::box_collider(Vec3::new(25.0, 0.1, 25.0)));
@@ -185,8 +194,8 @@ impl EditorApp {
                     scale,
                 };
                 entity.add_component(MeshRenderer {
-                    mesh_path: "cube".to_string(),
-                    material_path: Some("generated_2cbaf2cc.png".to_string()), // Water texture
+                    mesh_path: "water_cube".to_string(),
+                    material_path: None,
                 });
                 entity.add_component(RigidBody::static_body());
                 entity.add_component(Collider::box_collider(scale / 2.0));
@@ -211,8 +220,8 @@ impl EditorApp {
                     scale,
                 };
                 entity.add_component(MeshRenderer {
-                    mesh_path: "cube".to_string(),
-                    material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
+                    mesh_path: "stone_cube".to_string(),
+                    material_path: None,
                 });
                 entity.add_component(RigidBody::static_body());
                 entity.add_component(Collider::box_collider(scale / 2.0));
@@ -237,8 +246,8 @@ impl EditorApp {
                     scale: Vec3::new(1.5, 7.0, 1.5), // Tall defensive towers
                 };
                 entity.add_component(MeshRenderer {
-                    mesh_path: "cube".to_string(),
-                    material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
+                    mesh_path: "stone_cube".to_string(),
+                    material_path: None,
                 });
                 entity.add_component(RigidBody::static_body());
                 entity.add_component(Collider::box_collider(Vec3::new(0.75, 3.5, 0.75)));
@@ -255,8 +264,8 @@ impl EditorApp {
                 scale: Vec3::new(3.0, 10.0, 3.0), // Imposing central tower
             };
             entity.add_component(MeshRenderer {
-                mesh_path: "cube".to_string(),
-                material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
+                mesh_path: "stone_cube".to_string(),
+                material_path: None,
             });
             entity.add_component(RigidBody::static_body());
             entity.add_component(Collider::box_collider(Vec3::new(1.5, 5.0, 1.5)));
@@ -272,8 +281,8 @@ impl EditorApp {
                 scale: Vec3::new(2.5, 4.0, 1.5),
             };
             entity.add_component(MeshRenderer {
-                mesh_path: "cube".to_string(),
-                material_path: Some("generated_40ca92c1.png".to_string()), // Castle stone texture
+                mesh_path: "stone_cube".to_string(),
+                material_path: None,
             });
             entity.add_component(RigidBody::static_body());
             entity.add_component(Collider::box_collider(Vec3::new(1.25, 2.0, 0.75)));
@@ -290,8 +299,8 @@ impl EditorApp {
                 scale: Vec3::new(11.0, 0.1, 11.0),
             };
             entity.add_component(MeshRenderer {
-                mesh_path: "cube".to_string(),
-                material_path: Some("generated_40ca92c1.png".to_string()), // Stone courtyard
+                mesh_path: "stone_cube".to_string(),
+                material_path: None,
             });
             entity.add_component(RigidBody::static_body());
             entity.add_component(Collider::box_collider(Vec3::new(5.5, 0.05, 5.5)));
@@ -315,8 +324,8 @@ impl EditorApp {
                     scale,
                 };
                 entity.add_component(MeshRenderer {
-                    mesh_path: "cube".to_string(),
-                    material_path: Some("generated_aa0d9078.png".to_string()), // Grass
+                    mesh_path: "grass_cube".to_string(),
+                    material_path: None,
                 });
                 entity.add_component(RigidBody::static_body());
                 entity.add_component(Collider::box_collider(scale / 2.0));

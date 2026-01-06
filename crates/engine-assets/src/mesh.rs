@@ -80,6 +80,34 @@ impl Mesh {
         Self::new("Cube".to_string(), vertices, indices)
     }
 
+    /// Create a cube mesh with a specific color
+    pub fn cube_with_color(color: Vec3) -> Self {
+        let vertices = vec![
+            // Front face
+            Vertex::new(Vec3::new(-0.5, -0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
+            Vertex::new(Vec3::new(0.5, -0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
+            Vertex::new(Vec3::new(-0.5, 0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
+
+            // Back face
+            Vertex::new(Vec3::new(-0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
+            Vertex::new(Vec3::new(0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
+            Vertex::new(Vec3::new(-0.5, 0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
+        ];
+
+        let indices = vec![
+            0, 1, 2, 2, 3, 0, // front
+            1, 5, 6, 6, 2, 1, // right
+            5, 4, 7, 7, 6, 5, // back
+            4, 0, 3, 3, 7, 4, // left
+            3, 2, 6, 6, 7, 3, // top
+            4, 5, 1, 1, 0, 4, // bottom
+        ];
+
+        Self::new("Cube".to_string(), vertices, indices)
+    }
+
     /// Create a plane mesh
     pub fn plane(size: f32) -> Self {
         let half = size / 2.0;
