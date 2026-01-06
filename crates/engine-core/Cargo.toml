@@ -7,3 +7,4 @@ edition = "2021"
 glam = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
+winit = { workspace = true }
