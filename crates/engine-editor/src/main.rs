@@ -152,19 +152,25 @@ impl EditorApp {
         // Load stone texture for castle walls
         if let Ok(stone_tex) = Texture::from_file("generated_assets/textures/generated_85b14ace.png") {
             texture_manager.upload_texture(&renderer.device, &renderer.queue, "stone".to_string(), &stone_tex);
-            log::info!("Loaded stone texture");
+            log::info!("Loaded stone texture: {}x{}", stone_tex.width, stone_tex.height);
+        } else {
+            log::error!("Failed to load stone texture");
         }
 
         // Load grass texture for terrain
         if let Ok(grass_tex) = Texture::from_file("generated_assets/textures/generated_9c19e917.png") {
             texture_manager.upload_texture(&renderer.device, &renderer.queue, "grass".to_string(), &grass_tex);
-            log::info!("Loaded grass texture");
+            log::info!("Loaded grass texture: {}x{}", grass_tex.width, grass_tex.height);
+        } else {
+            log::error!("Failed to load grass texture");
         }
 
         // Load water texture for moat
-        if let Ok(water_tex) = Texture::from_file("generated_assets/textures/generated_ef5a5024.png") {
+        if let Ok(water_tex) = Texture::from_file("generated_assets/textures/generated_2cbaf2cc.png") {
             texture_manager.upload_texture(&renderer.device, &renderer.queue, "water".to_string(), &water_tex);
             log::info!("Loaded water texture");
+        } else {
+            log::error!("Failed to load water texture");
         }
 
         // Create cube meshes with white color (texture will provide color)

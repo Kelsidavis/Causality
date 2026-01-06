@@ -84,25 +84,49 @@ impl Mesh {
     pub fn cube_with_color(color: Vec3) -> Self {
         let vertices = vec![
             // Front face
-            Vertex::new(Vec3::new(-0.5, -0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
-            Vertex::new(Vec3::new(0.5, -0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
-            Vertex::new(Vec3::new(0.5, 0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
-            Vertex::new(Vec3::new(-0.5, 0.5, 0.5)).with_normal(Vec3::Z).with_color(color),
+            Vertex::new(Vec3::new(-0.5, -0.5, 0.5)).with_normal(Vec3::Z).with_tex_coord(Vec2::new(0.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, -0.5, 0.5)).with_normal(Vec3::Z).with_tex_coord(Vec2::new(1.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, 0.5)).with_normal(Vec3::Z).with_tex_coord(Vec2::new(1.0, 1.0)).with_color(color),
+            Vertex::new(Vec3::new(-0.5, 0.5, 0.5)).with_normal(Vec3::Z).with_tex_coord(Vec2::new(0.0, 1.0)).with_color(color),
 
             // Back face
-            Vertex::new(Vec3::new(-0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
-            Vertex::new(Vec3::new(0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
-            Vertex::new(Vec3::new(0.5, 0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
-            Vertex::new(Vec3::new(-0.5, 0.5, -0.5)).with_normal(Vec3::NEG_Z).with_color(color),
+            Vertex::new(Vec3::new(-0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Z).with_tex_coord(Vec2::new(1.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Z).with_tex_coord(Vec2::new(0.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, -0.5)).with_normal(Vec3::NEG_Z).with_tex_coord(Vec2::new(0.0, 1.0)).with_color(color),
+            Vertex::new(Vec3::new(-0.5, 0.5, -0.5)).with_normal(Vec3::NEG_Z).with_tex_coord(Vec2::new(1.0, 1.0)).with_color(color),
+
+            // Right face
+            Vertex::new(Vec3::new(0.5, -0.5, 0.5)).with_normal(Vec3::X).with_tex_coord(Vec2::new(0.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, -0.5, -0.5)).with_normal(Vec3::X).with_tex_coord(Vec2::new(1.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, -0.5)).with_normal(Vec3::X).with_tex_coord(Vec2::new(1.0, 1.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, 0.5)).with_normal(Vec3::X).with_tex_coord(Vec2::new(0.0, 1.0)).with_color(color),
+
+            // Left face
+            Vertex::new(Vec3::new(-0.5, -0.5, -0.5)).with_normal(Vec3::NEG_X).with_tex_coord(Vec2::new(0.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(-0.5, -0.5, 0.5)).with_normal(Vec3::NEG_X).with_tex_coord(Vec2::new(1.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(-0.5, 0.5, 0.5)).with_normal(Vec3::NEG_X).with_tex_coord(Vec2::new(1.0, 1.0)).with_color(color),
+            Vertex::new(Vec3::new(-0.5, 0.5, -0.5)).with_normal(Vec3::NEG_X).with_tex_coord(Vec2::new(0.0, 1.0)).with_color(color),
+
+            // Top face
+            Vertex::new(Vec3::new(-0.5, 0.5, 0.5)).with_normal(Vec3::Y).with_tex_coord(Vec2::new(0.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, 0.5)).with_normal(Vec3::Y).with_tex_coord(Vec2::new(1.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, 0.5, -0.5)).with_normal(Vec3::Y).with_tex_coord(Vec2::new(1.0, 1.0)).with_color(color),
+            Vertex::new(Vec3::new(-0.5, 0.5, -0.5)).with_normal(Vec3::Y).with_tex_coord(Vec2::new(0.0, 1.0)).with_color(color),
+
+            // Bottom face
+            Vertex::new(Vec3::new(-0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Y).with_tex_coord(Vec2::new(0.0, 1.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, -0.5, -0.5)).with_normal(Vec3::NEG_Y).with_tex_coord(Vec2::new(1.0, 1.0)).with_color(color),
+            Vertex::new(Vec3::new(0.5, -0.5, 0.5)).with_normal(Vec3::NEG_Y).with_tex_coord(Vec2::new(1.0, 0.0)).with_color(color),
+            Vertex::new(Vec3::new(-0.5, -0.5, 0.5)).with_normal(Vec3::NEG_Y).with_tex_coord(Vec2::new(0.0, 0.0)).with_color(color),
         ];
 
         let indices = vec![
-            0, 1, 2, 2, 3, 0, // front
-            1, 5, 6, 6, 2, 1, // right
-            5, 4, 7, 7, 6, 5, // back
-            4, 0, 3, 3, 7, 4, // left
-            3, 2, 6, 6, 7, 3, // top
-            4, 5, 1, 1, 0, 4, // bottom
+            0, 1, 2, 2, 3, 0,       // front
+            8, 9, 10, 10, 11, 8,    // right
+            12, 13, 14, 14, 15, 12, // left
+            16, 17, 18, 18, 19, 16, // top
+            20, 21, 22, 22, 23, 20, // bottom
+            4, 5, 6, 6, 7, 4,       // back
         ];
 
         Self::new("Cube".to_string(), vertices, indices)
