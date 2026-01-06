@@ -13,6 +13,7 @@ use engine_render::{
     gpu_mesh::GpuVertex,
     mesh_manager::MeshManager,
     renderer::Renderer,
+    shadow::ShadowMap,
     skybox::Skybox,
 };
 use engine_scene::{
@@ -65,6 +66,7 @@ struct WgpuState {
     mesh_manager: MeshManager,
     depth_texture: wgpu::TextureView,
     skybox: Option<Skybox>,
+    shadow_map: Option<ShadowMap>,
     camera_bind_group_layout: wgpu::BindGroupLayout,
     camera_bind_group: Option<wgpu::BindGroup>,
     camera_uniform_buffer: wgpu::Buffer,
@@ -294,6 +296,9 @@ fn update(ctx) {
             Skybox::create_gradient_skybox(&renderer.queue, &skybox.texture);
         }
 
+        // Create shadow map
+        let shadow_map = ShadowMap::new(&renderer.device).ok();
+
         self.window = Some(window.clone());
         self.wgpu_state = Some(WgpuState {
             instance,
@@ -302,6 +307,7 @@ fn update(ctx) {
             mesh_manager,
             depth_texture,
             skybox,
+            shadow_map,
             camera_bind_group_layout,
             camera_bind_group: Some(camera_bind_group),
             camera_uniform_buffer,
@@ -511,6 +517,65 @@ fn update(ctx) {
             0,
             bytemuck::cast_slice(&camera_uniforms),
         );
+
+        // Render shadow map (depth pass from light's perspective)
+        if let Some(ref shadow_map) = wgpu_state.shadow_map {
+            // Directional light coming from above and to the side
+            let light_direction = glam::Vec3::new(0.5, -1.0, 0.3).normalize();
+
+            // Calculate scene bounds (simplified - use all entities)
+            let scene_center = glam::Vec3::ZERO;
+            let scene_radius = 10.0; // Conservative estimate
+
+            let light_space_matrix = ShadowMap::calculate_light_space_matrix(
+                light_direction,
+                scene_center,
+                scene_radius,
+            );
+
+            // Shadow pass - render all meshes from light's perspective
+            {
+                let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Shadow Pass"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &shadow_map.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                shadow_pass.set_pipeline(&shadow_map.render_pipeline);
+
+                // Render all meshes to shadow map
+                for entity in scene.entities() {
+                    if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
+                        if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&mesh_renderer.mesh_path) {
+                            if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
+                                let world_matrix = scene.world_matrix(entity.id);
+
+                                // Update shadow uniforms
+                                shadow_map.update_uniforms(
+                                    &wgpu_state.renderer.queue,
+                                    light_space_matrix,
+                                    world_matrix,
+                                );
+
+                                shadow_pass.set_bind_group(0, &shadow_map.bind_group, &[]);
+                                shadow_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
+                                shadow_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                                shadow_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
+                            }
+                        }
+                    }
+                }
+            } // shadow_pass dropped here
+        }
 
         // Render skybox first (background)
         if let Some(ref skybox) = wgpu_state.skybox {
