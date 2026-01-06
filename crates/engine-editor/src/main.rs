@@ -146,31 +146,31 @@ impl EditorApp {
         // Create castle and countryside scene
         let mut scene = Scene::new("Castle and Countryside".to_string());
 
-        // Load AI-generated textures from Stable Diffusion
-        log::info!("Loading AI-generated textures...");
+        // Load sample textures from assets folder
+        log::info!("Loading sample textures...");
 
         // Load stone texture for castle walls (1024x1024 high-res with variation)
-        if let Ok(stone_tex) = Texture::from_file("generated_assets/textures/generated_c6bc0825.png") {
+        if let Ok(stone_tex) = Texture::from_file("assets/textures/stone_bricks.png") {
             texture_manager.upload_texture(&renderer.device, &renderer.queue, "stone".to_string(), &stone_tex);
             log::info!("Loaded stone texture: {}x{}", stone_tex.width, stone_tex.height);
         } else {
-            log::error!("Failed to load stone texture");
+            log::error!("Failed to load stone texture from assets/textures/stone_bricks.png");
         }
 
         // Load grass texture for terrain
-        if let Ok(grass_tex) = Texture::from_file("generated_assets/textures/generated_9c19e917.png") {
+        if let Ok(grass_tex) = Texture::from_file("assets/textures/grass.png") {
             texture_manager.upload_texture(&renderer.device, &renderer.queue, "grass".to_string(), &grass_tex);
             log::info!("Loaded grass texture: {}x{}", grass_tex.width, grass_tex.height);
         } else {
-            log::error!("Failed to load grass texture");
+            log::error!("Failed to load grass texture from assets/textures/grass.png");
         }
 
         // Load water texture for moat
-        if let Ok(water_tex) = Texture::from_file("generated_assets/textures/generated_2cbaf2cc.png") {
+        if let Ok(water_tex) = Texture::from_file("assets/textures/water.png") {
             texture_manager.upload_texture(&renderer.device, &renderer.queue, "water".to_string(), &water_tex);
-            log::info!("Loaded water texture");
+            log::info!("Loaded water texture: {}x{}", water_tex.width, water_tex.height);
         } else {
-            log::error!("Failed to load water texture");
+            log::error!("Failed to load water texture from assets/textures/water.png");
         }
 
         // Create cube meshes with white color (texture will provide color)
@@ -369,6 +369,13 @@ impl EditorApp {
         }
 
         log::info!("Created castle scene with {} entities", entity_ids.len());
+
+        // Save the castle scene
+        if let Err(e) = scene.save_to_file("assets/scenes/castle.ron") {
+            log::error!("Failed to save castle scene: {}", e);
+        } else {
+            log::info!("Saved castle scene to assets/scenes/castle.ron");
+        }
 
         // Initialize physics world
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)

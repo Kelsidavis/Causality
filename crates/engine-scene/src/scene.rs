@@ -1,6 +1,8 @@
 // Scene - manages a collection of entities
 
+use crate::components::*;
 use crate::entity::{Entity, EntityId};
+use crate::scene_data::{SerializedComponent, SerializedEntity, SerializedScene};
 use crate::transform::Transform;
 use glam::Mat4;
 use std::collections::HashMap;
@@ -145,6 +147,98 @@ impl Scene {
         self.entities.clear();
         self.root_entities.clear();
         self.next_id = 1;
+    }
+
+    /// Convert scene to serializable format
+    /// Note: Only core components (MeshRenderer, Camera, Light) are serialized.
+    /// Physics components should be serialized separately using scene_with_extensions.
+    pub fn to_serialized(&self) -> SerializedScene {
+        let mut serialized_entities = HashMap::new();
+
+        for (id, entity) in &self.entities {
+            let mut components = Vec::new();
+
+            // Check for each component type and serialize it
+            if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
+                components.push(SerializedComponent::MeshRenderer(mesh_renderer.clone()));
+            }
+            if let Some(camera) = entity.get_component::<Camera>() {
+                components.push(SerializedComponent::Camera(camera.clone()));
+            }
+            if let Some(light) = entity.get_component::<Light>() {
+                components.push(SerializedComponent::Light(light.clone()));
+            }
+
+            serialized_entities.insert(
+                *id,
+                SerializedEntity {
+                    id: entity.id,
+                    name: entity.name.clone(),
+                    transform: entity.transform,
+                    parent: entity.parent,
+                    children: entity.children.clone(),
+                    components,
+                },
+            );
+        }
+
+        SerializedScene {
+            name: self.name.clone(),
+            entities: serialized_entities,
+            next_id: self.next_id,
+            root_entities: self.root_entities.clone(),
+        }
+    }
+
+    /// Create scene from serialized format
+    /// Note: Only core components are deserialized. Physics and other extension
+    /// components should be deserialized using scene_with_extensions.
+    pub fn from_serialized(data: SerializedScene) -> Self {
+        let mut entities = HashMap::new();
+
+        for (id, serialized_entity) in data.entities {
+            let mut entity = Entity::new(serialized_entity.id, serialized_entity.name);
+            entity.transform = serialized_entity.transform;
+            entity.parent = serialized_entity.parent;
+            entity.children = serialized_entity.children;
+
+            // Add each serialized component
+            for component in serialized_entity.components {
+                match component {
+                    SerializedComponent::MeshRenderer(c) => entity.add_component(c),
+                    SerializedComponent::Camera(c) => entity.add_component(c),
+                    SerializedComponent::Light(c) => entity.add_component(c),
+                    SerializedComponent::Generic { .. } => {
+                        // Generic components are not deserialized at this level
+                        // They should be handled by extension systems
+                    }
+                }
+            }
+
+            entities.insert(id, entity);
+        }
+
+        Self {
+            name: data.name,
+            entities,
+            next_id: data.next_id,
+            root_entities: data.root_entities,
+        }
+    }
+
+    /// Save scene to RON file
+    pub fn save_to_file(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let serialized = self.to_serialized();
+        let ron_string = ron::ser::to_string_pretty(&serialized, Default::default())?;
+        std::fs::write(path, ron_string)?;
+        Ok(())
+    }
+
+    /// Load scene from RON file
+    pub fn load_from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let ron_string = std::fs::read_to_string(path)?;
+        let serialized: SerializedScene = ron::de::from_str(&ron_string)?;
+        Ok(Self::from_serialized(serialized))
     }
 }
 
