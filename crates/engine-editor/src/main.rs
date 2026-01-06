@@ -5,6 +5,7 @@ pub mod ipc;
 mod file_ipc;
 
 use anyhow::Result;
+use clap::Parser;
 use engine_assets::{manager::AssetManager, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent};
 use wgpu::util::DeviceExt;
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody};
@@ -36,6 +37,16 @@ use winit::{
     window::{Window, WindowId},
 };
 
+/// Causality Engine Editor
+#[derive(Parser, Debug)]
+#[command(name = "Causality Engine Editor")]
+#[command(about = "3D game engine editor with visual editing tools", long_about = None)]
+struct Args {
+    /// Scene file to load (.ron format)
+    #[arg(short, long)]
+    scene: Option<String>,
+}
+
 struct EditorApp {
     window: Option<Arc<Window>>,
     wgpu_state: Option<WgpuState>,
@@ -53,6 +64,7 @@ struct EditorApp {
     script_paths: std::collections::HashMap<EntityId, std::path::PathBuf>,
     ipc_channel: Option<ipc::IpcChannel>,
     file_ipc: Option<file_ipc::FileIpcHandler>,
+    scene_file_path: Option<String>,
 }
 
 struct EguiState {
@@ -94,7 +106,7 @@ fn convert_mesh_to_gpu(mesh: &Mesh) -> Vec<GpuVertex> {
 }
 
 impl EditorApp {
-    fn new() -> Self {
+    fn new(scene_file_path: Option<String>) -> Self {
         Self {
             window: None,
             wgpu_state: None,
@@ -112,6 +124,7 @@ impl EditorApp {
             script_paths: std::collections::HashMap::new(),
             ipc_channel: None,
             file_ipc: Some(file_ipc::FileIpcHandler::new()),
+            scene_file_path,
         }
     }
 
@@ -143,8 +156,27 @@ impl EditorApp {
         let asset_manager = AssetManager::new(std::env::current_dir()?.join("assets"));
         let mut mesh_manager = MeshManager::new();
 
-        // Create castle and countryside scene
-        let mut scene = Scene::new("Castle and Countryside".to_string());
+        // Load scene from file or create empty scene
+        let mut scene = if let Some(ref scene_path) = self.scene_file_path {
+            log::info!("Loading scene from: {}", scene_path);
+            match Scene::load_from_file(scene_path) {
+                Ok(loaded_scene) => {
+                    log::info!("Loaded scene '{}' with {} entities",
+                        loaded_scene.name,
+                        loaded_scene.entity_count()
+                    );
+                    loaded_scene
+                }
+                Err(e) => {
+                    log::error!("Failed to load scene from {}: {}", scene_path, e);
+                    log::info!("Creating empty scene instead");
+                    Scene::new("Empty Scene".to_string())
+                }
+            }
+        } else {
+            log::info!("No scene file specified, creating empty scene");
+            Scene::new("Empty Scene".to_string())
+        };
 
         // Load sample textures from assets folder
         log::info!("Loading sample textures...");
@@ -191,191 +223,8 @@ impl EditorApp {
         let water_vertices = convert_mesh_to_gpu(&water_cube);
         mesh_manager.upload_mesh(&renderer.device, "water_cube".to_string(), &water_vertices, &water_cube.indices);
 
-        let mut entity_ids = Vec::new();
-
-        // === CASTLE AND COUNTRYSIDE SCENE ===
-        // Ground plane - scaled to fit view
-        let countryside_id = scene.create_entity("Countryside Ground".to_string());
-        if let Some(entity) = scene.get_entity_mut(countryside_id) {
-            entity.transform = Transform {
-                position: Vec3::new(0.0, -0.5, 0.0),
-                rotation: Quat::IDENTITY,
-                scale: Vec3::new(20.0, 0.2, 20.0), // Reasonable ground size
-            };
-            entity.add_component(MeshRenderer {
-                mesh_path: "grass_cube".to_string(),
-                material_path: None,
-            });
-            entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(10.0, 0.1, 10.0)));
-        }
-        entity_ids.push(countryside_id);
-
-        // === MOAT SYSTEM ===
-        // Moat water basin - square ring around castle at ground level
-        let moat_positions = vec![
-            ("Moat North", Vec3::new(0.0, 0.2, -4.5), Vec3::new(10.0, 0.5, 1.0)),
-            ("Moat South", Vec3::new(0.0, 0.2, 4.5), Vec3::new(10.0, 0.5, 1.0)),
-            ("Moat East", Vec3::new(4.5, 0.2, 0.0), Vec3::new(1.0, 0.5, 8.0)),
-            ("Moat West", Vec3::new(-4.5, 0.2, 0.0), Vec3::new(1.0, 0.5, 8.0)),
-        ];
-
-        for (name, pos, scale) in moat_positions {
-            let moat_id = scene.create_entity(name.to_string());
-            if let Some(entity) = scene.get_entity_mut(moat_id) {
-                entity.transform = Transform {
-                    position: pos,
-                    rotation: Quat::IDENTITY,
-                    scale,
-                };
-                entity.add_component(MeshRenderer {
-                    mesh_path: "water_cube".to_string(),
-                    material_path: None,
-                });
-                entity.add_component(RigidBody::static_body());
-                entity.add_component(Collider::box_collider(scale / 2.0));
-            }
-            entity_ids.push(moat_id);
-        }
-
-        // === CASTLE WALLS (CURTAIN WALLS) ===
-        let castle_walls = vec![
-            ("Castle Wall North", Vec3::new(0.0, 1.5, -3.5), Vec3::new(7.0, 3.0, 0.4)),
-            ("Castle Wall South", Vec3::new(0.0, 1.5, 3.5), Vec3::new(7.0, 3.0, 0.4)),
-            ("Castle Wall East", Vec3::new(3.5, 1.5, 0.0), Vec3::new(0.4, 3.0, 7.0)),
-            ("Castle Wall West", Vec3::new(-3.5, 1.5, 0.0), Vec3::new(0.4, 3.0, 7.0)),
-        ];
-
-        for (name, pos, scale) in castle_walls {
-            let wall_id = scene.create_entity(name.to_string());
-            if let Some(entity) = scene.get_entity_mut(wall_id) {
-                entity.transform = Transform {
-                    position: pos,
-                    rotation: Quat::IDENTITY,
-                    scale,
-                };
-                entity.add_component(MeshRenderer {
-                    mesh_path: "stone_cube".to_string(),
-                    material_path: None,
-                });
-                entity.add_component(RigidBody::static_body());
-                entity.add_component(Collider::box_collider(scale / 2.0));
-            }
-            entity_ids.push(wall_id);
-        }
-
-        // === CORNER TOWERS (DEFENSIVE TURRETS) ===
-        let corner_towers = vec![
-            ("Tower NE", Vec3::new(3.5, 2.0, -3.5)),
-            ("Tower SE", Vec3::new(3.5, 2.0, 3.5)),
-            ("Tower NW", Vec3::new(-3.5, 2.0, -3.5)),
-            ("Tower SW", Vec3::new(-3.5, 2.0, 3.5)),
-        ];
-
-        for (name, pos) in corner_towers {
-            let tower_id = scene.create_entity(name.to_string());
-            if let Some(entity) = scene.get_entity_mut(tower_id) {
-                entity.transform = Transform {
-                    position: pos,
-                    rotation: Quat::IDENTITY,
-                    scale: Vec3::new(1.0, 4.0, 1.0), // Defensive towers
-                };
-                entity.add_component(MeshRenderer {
-                    mesh_path: "stone_cube".to_string(),
-                    material_path: None,
-                });
-                entity.add_component(RigidBody::static_body());
-                entity.add_component(Collider::box_collider(Vec3::new(0.5, 2.0, 0.5)));
-            }
-            entity_ids.push(tower_id);
-        }
-
-        // === CENTRAL KEEP (MAIN FORTRESS) ===
-        let keep_id = scene.create_entity("Castle Keep".to_string());
-        if let Some(entity) = scene.get_entity_mut(keep_id) {
-            entity.transform = Transform {
-                position: Vec3::new(0.0, 3.0, 0.0),
-                rotation: Quat::IDENTITY,
-                scale: Vec3::new(1.5, 6.0, 1.5), // Central tower
-            };
-            entity.add_component(MeshRenderer {
-                mesh_path: "stone_cube".to_string(),
-                material_path: None,
-            });
-            entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(0.75, 3.0, 0.75)));
-        }
-        entity_ids.push(keep_id);
-
-        // === GATEHOUSE ===
-        let gatehouse_id = scene.create_entity("Gatehouse".to_string());
-        if let Some(entity) = scene.get_entity_mut(gatehouse_id) {
-            entity.transform = Transform {
-                position: Vec3::new(0.0, 1.2, 3.8), // Front of south wall
-                rotation: Quat::IDENTITY,
-                scale: Vec3::new(1.5, 2.4, 0.8),
-            };
-            entity.add_component(MeshRenderer {
-                mesh_path: "stone_cube".to_string(),
-                material_path: None,
-            });
-            entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(0.75, 1.2, 0.4)));
-        }
-        entity_ids.push(gatehouse_id);
-
-        // === COURTYARD DETAILS ===
-        // Courtyard ground
-        let courtyard_id = scene.create_entity("Courtyard".to_string());
-        if let Some(entity) = scene.get_entity_mut(courtyard_id) {
-            entity.transform = Transform {
-                position: Vec3::new(0.0, 0.0, 0.0),
-                rotation: Quat::IDENTITY,
-                scale: Vec3::new(6.5, 0.1, 6.5),
-            };
-            entity.add_component(MeshRenderer {
-                mesh_path: "stone_cube".to_string(),
-                material_path: None,
-            });
-            entity.add_component(RigidBody::static_body());
-            entity.add_component(Collider::box_collider(Vec3::new(3.25, 0.05, 3.25)));
-        }
-        entity_ids.push(courtyard_id);
-
-        // === COUNTRYSIDE DETAILS (SCATTERED ELEMENTS) ===
-        // Small hills/mounds
-        let hills = vec![
-            ("Hill 1", Vec3::new(8.0, 0.3, 8.0), Vec3::new(2.0, 0.6, 2.0)),
-            ("Hill 2", Vec3::new(-8.0, 0.35, 7.0), Vec3::new(2.5, 0.7, 2.5)),
-            ("Hill 3", Vec3::new(9.0, 0.25, -9.0), Vec3::new(1.8, 0.5, 1.8)),
-        ];
-
-        for (name, pos, scale) in hills {
-            let hill_id = scene.create_entity(name.to_string());
-            if let Some(entity) = scene.get_entity_mut(hill_id) {
-                entity.transform = Transform {
-                    position: pos,
-                    rotation: Quat::IDENTITY,
-                    scale,
-                };
-                entity.add_component(MeshRenderer {
-                    mesh_path: "grass_cube".to_string(),
-                    material_path: None,
-                });
-                entity.add_component(RigidBody::static_body());
-                entity.add_component(Collider::box_collider(scale / 2.0));
-            }
-            entity_ids.push(hill_id);
-        }
-
-        log::info!("Created castle scene with {} entities", entity_ids.len());
-
-        // Save the castle scene
-        if let Err(e) = scene.save_to_file("assets/scenes/castle.ron") {
-            log::error!("Failed to save castle scene: {}", e);
-        } else {
-            log::info!("Saved castle scene to assets/scenes/castle.ron");
-        }
+        // Scene is now loaded from file instead of being generated
+        // No need to create entities programmatically
 
         // Initialize physics world
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
@@ -500,7 +349,7 @@ impl EditorApp {
         self.asset_manager = Some(asset_manager);
         self.physics_world = Some(physics_world);
         self.script_system = Some(script_system);
-        self.entity_ids = entity_ids;
+        self.entity_ids = Vec::new(); // Scene loaded from file, not tracking individual entity IDs
         self.ui = Some(EditorUi::new());
         self.egui_state = Some(EguiState {
             context: egui_context,
@@ -1100,10 +949,20 @@ fn main() -> Result<()> {
     env_logger::init();
     log::info!("Causality Engine - Editor starting...");
 
+    // Parse command line arguments
+    let args = Args::parse();
+
+    // Determine scene file path (use provided or default to castle scene)
+    let scene_file = args.scene.or_else(|| Some("assets/scenes/castle.ron".to_string()));
+
+    if let Some(ref path) = scene_file {
+        log::info!("Will load scene from: {}", path);
+    }
+
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = EditorApp::new();
+    let mut app = EditorApp::new(scene_file);
     event_loop.run_app(&mut app)?;
 
     Ok(())

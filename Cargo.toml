@@ -52,6 +52,7 @@ anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
 notify = "7.0"
+clap = { version = "4.5", features = ["derive"] }
 
 # MCP Server
 tokio = { version = "1.42", features = ["full"] }
