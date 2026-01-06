@@ -1,0 +1,47 @@
+{
+    "format": "wav",
+    "lora_name_or_path": "none",
+    "lora_weight": 1.0,
+    "task": "text2music",
+    "prompt": "Dark mysterious instrumental music, eerie ambient soundscape, suspenseful atmosphere, no vocals, pure instrumental",
+    "lyrics": "",
+    "audio_duration": 60,
+    "infer_step": 27,
+    "guidance_scale": 3.5,
+    "scheduler_type": "euler",
+    "cfg_type": "full",
+    "omega_scale": 0.0,
+    "guidance_interval": 0.0,
+    "guidance_interval_decay": 0.0,
+    "min_guidance_scale": 0.0,
+    "use_erg_tag": false,
+    "use_erg_lyric": false,
+    "use_erg_diffusion": false,
+    "oss_steps": [],
+    "timecosts": {
+        "preprocess": 0.04427695274353027,
+        "diffusion": 111.3738751411438,
+        "latent2audio": 46.283974170684814
+    },
+    "actual_seeds": [
+        42
+    ],
+    "retake_seeds": [
+        1722688839
+    ],
+    "retake_variance": 0.5,
+    "guidance_scale_text": 0.0,
+    "guidance_scale_lyric": 0.0,
+    "repaint_start": 0,
+    "repaint_end": 0,
+    "edit_n_min": 0.0,
+    "edit_n_max": 1.0,
+    "edit_n_avg": 1,
+    "src_audio_path": null,
+    "edit_target_prompt": null,
+    "edit_target_lyrics": null,
+    "audio2audio_enable": false,
+    "ref_audio_strength": 0.5,
+    "ref_audio_input": null,
+    "audio_path": "../assets/music/samples/mysterious.wav"
+}
