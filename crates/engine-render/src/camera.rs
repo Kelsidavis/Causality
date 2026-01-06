@@ -1,6 +1,7 @@
 // Camera system for 3D rendering
 
 use glam::{Mat4, Vec3};
+use crate::frustum::Frustum;
 
 pub struct Camera {
     pub position: Vec3,
@@ -41,5 +42,10 @@ impl Camera {
         if height > 0 {
             self.aspect = width as f32 / height as f32;
         }
+    }
+
+    /// Get the view frustum for culling
+    pub fn frustum(&self) -> Frustum {
+        Frustum::from_view_projection(self.view_projection_matrix())
     }
 }
