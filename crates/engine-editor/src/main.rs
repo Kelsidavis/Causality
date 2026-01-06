@@ -512,13 +512,35 @@ fn update(ctx) {
             );
         }
 
-        // Submit main render encoder
-        wgpu_state.renderer.queue.submit(std::iter::once(encoder.finish()));
+        // Render egui UI
+        let egui_state = self.egui_state.as_mut().unwrap();
+        {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui render pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // Don't clear - preserve 3D scene
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
 
-        // TODO: egui rendering - requires investigation of egui-wgpu 0.33 API changes
-        // The render() method signature appears to have changed and requires further research
-        // For now, UI logic executes but rendering is disabled
-        // See: https://github.com/emilk/egui/blob/master/crates/egui-wgpu/CHANGELOG.md
+            // egui-wgpu requires a 'static lifetime render pass (forget_lifetime consumes the pass)
+            egui_state.renderer.render(
+                &mut render_pass.forget_lifetime(),
+                &paint_jobs,
+                &screen_descriptor,
+            );
+        } // render_pass consumed by forget_lifetime()
+
+        // Submit all rendering work
+        wgpu_state.renderer.queue.submit(std::iter::once(encoder.finish()));
 
         {
             let egui_state = self.egui_state.as_mut().unwrap();
