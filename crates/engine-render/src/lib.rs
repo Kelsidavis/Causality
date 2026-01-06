@@ -3,6 +3,7 @@
 pub mod camera;
 pub mod frustum;
 pub mod gpu_mesh;
+pub mod lod;
 pub mod mesh_manager;
 pub mod postprocess;
 pub mod renderer;
@@ -12,6 +13,7 @@ pub mod skybox;
 pub use camera::Camera;
 pub use frustum::{Frustum, Plane, AABB};
 pub use gpu_mesh::{GpuMesh, GpuVertex, MeshHandle};
+pub use lod::{distance_squared, LodBias, LodConfig, LodLevel};
 pub use mesh_manager::MeshManager;
 pub use postprocess::{Framebuffer, PostProcessPipeline, PostProcessSettings};
 pub use renderer::Renderer;
