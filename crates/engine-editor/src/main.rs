@@ -917,7 +917,16 @@ impl ApplicationHandler for EditorApp {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Check if exit was requested from UI
+        if let Some(ui) = &self.ui {
+            if ui.is_exit_requested() {
+                log::info!("Exit requested by user");
+                event_loop.exit();
+                return;
+            }
+        }
+
         // Process IPC commands from MCP server
         if let Some(ipc) = &self.ipc_channel {
             if let Ok(Some(command)) = ipc.try_recv_command() {
