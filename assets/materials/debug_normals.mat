@@ -1,0 +1,24 @@
+# Debug Normals Material
+# For testing normal mapping (placeholder until normal maps are added)
+
+name: "Debug Normals"
+
+# Texture paths
+albedo_texture: "textures/stone_bricks.png"
+normal_texture: null  # Add normal map here when available
+metallic_roughness_texture: null
+ao_texture: null
+
+# PBR parameters
+base_color: [1.0, 1.0, 1.0, 1.0]
+metallic: 0.0
+roughness: 0.9                     # Very rough for testing
+ao_factor: 1.0
+
+# Emission
+emissive_color: [0.0, 0.0, 0.0]
+emissive_strength: 0.0
+
+# Rendering flags
+alpha_mode: Opaque
+double_sided: false

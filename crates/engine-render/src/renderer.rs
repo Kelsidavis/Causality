@@ -1,5 +1,6 @@
 // wgpu renderer with multi-mesh support
 
+use crate::gpu_material::GpuMaterial;
 use crate::gpu_mesh::{GpuMesh, GpuVertex};
 use crate::texture_manager::TextureManager;
 use crate::shadow::ShadowMap;
@@ -20,6 +21,8 @@ pub struct Renderer {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
     pub view_proj: [[f32; 4]; 4],
+    pub camera_pos: [f32; 3],
+    pub _padding: f32,
 }
 
 #[repr(C)]
@@ -81,15 +84,17 @@ impl Renderer {
 
         surface.configure(&device, &surface_config);
 
-        // Create shader module
+        // Create shader module (advanced PBR with normal mapping)
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/pbr.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/pbr_advanced_nm.wgsl").into()),
         });
 
-        // Create uniform buffer (only view_proj now, model is in push constants)
+        // Create uniform buffer (view_proj and camera position)
         let uniforms = Uniforms {
             view_proj: Mat4::IDENTITY.to_cols_array_2d(),
+            camera_pos: [0.0, 0.0, 0.0],
+            _padding: 0.0,
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -103,7 +108,7 @@ impl Renderer {
             label: Some("Uniform Bind Group Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -123,8 +128,8 @@ impl Renderer {
             }],
         });
 
-        // Create texture bind group layout using TextureManager's descriptor
-        let texture_bind_group_layout = device.create_bind_group_layout(&TextureManager::bind_group_layout_descriptor());
+        // Create material bind group layout (replaces old texture bind group layout)
+        let material_bind_group_layout = GpuMaterial::create_bind_group_layout(&device);
 
         // Create shadow bind group layout
         let shadow_bind_group_layout = ShadowMap::create_sampling_bind_group_layout(&device);
@@ -132,7 +137,7 @@ impl Renderer {
         // Create pipeline layout with push constants for model matrix
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout, &texture_bind_group_layout, &shadow_bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout, &material_bind_group_layout, &shadow_bind_group_layout],
             push_constant_ranges: &[wgpu::PushConstantRange {
                 stages: wgpu::ShaderStages::VERTEX,
                 range: 0..64, // mat4x4<f32> = 64 bytes
@@ -233,14 +238,17 @@ impl Renderer {
         depth_texture: &wgpu::TextureView,
         mesh: &GpuMesh,
         view_proj: Mat4,
+        camera_pos: glam::Vec3,
         model: Mat4,
         texture_bind_group: &wgpu::BindGroup,
         shadow_bind_group: &wgpu::BindGroup,
         clear: bool,
     ) {
-        // Update uniforms (only view_proj, model is in push constants)
+        // Update uniforms (view_proj and camera position for specular calculations)
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
+            camera_pos: camera_pos.to_array(),
+            _padding: 0.0,
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));

@@ -1,0 +1,24 @@
+# Grass Material
+# Natural grass texture with appropriate PBR properties
+
+name: "Grass"
+
+# Texture paths
+albedo_texture: "textures/grass.png"
+normal_texture: null
+metallic_roughness_texture: null
+ao_texture: null
+
+# PBR parameters
+base_color: [1.0, 1.0, 1.0, 1.0]
+metallic: 0.0                      # Non-metallic (organic material)
+roughness: 0.95                    # Very rough (grass is matte)
+ao_factor: 1.0
+
+# Emission
+emissive_color: [0.0, 0.0, 0.0]
+emissive_strength: 0.0
+
+# Rendering flags
+alpha_mode: Opaque
+double_sided: false

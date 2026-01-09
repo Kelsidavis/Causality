@@ -90,3 +90,64 @@ impl Light {
 }
 
 impl_component!(Light);
+
+/// Audio source component - plays sound at entity position
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioSource {
+    pub audio_path: String,
+    pub volume: f32,
+    pub max_distance: f32,
+    pub playing: bool,
+    pub looping: bool,
+    pub play_on_start: bool,
+}
+
+impl AudioSource {
+    pub fn new(audio_path: String) -> Self {
+        Self {
+            audio_path,
+            volume: 1.0,
+            max_distance: 50.0,
+            playing: false,
+            looping: false,
+            play_on_start: false,
+        }
+    }
+
+    pub fn with_volume(mut self, volume: f32) -> Self {
+        self.volume = volume;
+        self
+    }
+
+    pub fn with_looping(mut self, looping: bool) -> Self {
+        self.looping = looping;
+        self
+    }
+
+    pub fn with_play_on_start(mut self, play_on_start: bool) -> Self {
+        self.play_on_start = play_on_start;
+        self
+    }
+}
+
+impl_component!(AudioSource);
+
+/// Audio listener component - typically attached to camera
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioListener {
+    pub active: bool,
+}
+
+impl AudioListener {
+    pub fn new() -> Self {
+        Self { active: true }
+    }
+}
+
+impl Default for AudioListener {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl_component!(AudioListener);

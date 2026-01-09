@@ -146,6 +146,11 @@ impl ScriptSystem {
     pub fn runtime_mut(&mut self) -> &mut ScriptRuntime {
         &mut self.runtime
     }
+
+    /// Register audio API with script engine
+    pub fn register_audio_api(&mut self, command_queue: crate::audio::AudioCommandQueue) {
+        crate::audio::register_audio_api(self.runtime.engine_mut(), command_queue);
+    }
 }
 
 impl Default for ScriptSystem {

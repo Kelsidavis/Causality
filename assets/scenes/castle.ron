@@ -15,7 +15,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "grass_cube",
-                    material_path: None,
+                    material_path: Some("materials/grass.mat"),
                 ),
             ],
         ),
@@ -33,7 +33,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -51,7 +51,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -69,7 +69,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -87,7 +87,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "water_cube",
-                    material_path: None,
+                    material_path: Some("materials/water.mat"),
                 ),
             ],
         ),
@@ -105,7 +105,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -123,7 +123,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -141,7 +141,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "grass_cube",
-                    material_path: None,
+                    material_path: Some("materials/grass.mat"),
                 ),
             ],
         ),
@@ -159,7 +159,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -177,7 +177,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "water_cube",
-                    material_path: None,
+                    material_path: Some("materials/water.mat"),
                 ),
             ],
         ),
@@ -195,7 +195,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "grass_cube",
-                    material_path: None,
+                    material_path: Some("materials/grass.mat"),
                 ),
             ],
         ),
@@ -213,7 +213,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -231,7 +231,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -249,7 +249,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "grass_cube",
-                    material_path: None,
+                    material_path: Some("materials/grass.mat"),
                 ),
             ],
         ),
@@ -267,7 +267,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "water_cube",
-                    material_path: None,
+                    material_path: Some("materials/water.mat"),
                 ),
             ],
         ),
@@ -285,7 +285,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "water_cube",
-                    material_path: None,
+                    material_path: Some("materials/water.mat"),
                 ),
             ],
         ),
@@ -303,7 +303,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -321,7 +321,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),
@@ -339,7 +339,7 @@
                 (
                     type: "MeshRenderer",
                     mesh_path: "stone_cube",
-                    material_path: None,
+                    material_path: Some("materials/stone_bricks.mat"),
                 ),
             ],
         ),

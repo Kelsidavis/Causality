@@ -6,12 +6,14 @@ mod file_ipc;
 
 use anyhow::Result;
 use clap::Parser;
-use engine_assets::{manager::AssetManager, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent};
+use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent};
 use wgpu::util::DeviceExt;
+use engine_audio::AudioSystem;
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody};
 use engine_render::{
     camera::Camera,
     gpu_mesh::GpuVertex,
+    material_manager::MaterialManager,
     mesh_manager::MeshManager,
     postprocess::{Framebuffer, PostProcessPipeline},
     renderer::Renderer,
@@ -20,14 +22,14 @@ use engine_render::{
     texture_manager::TextureManager,
 };
 use engine_scene::{
-    components::MeshRenderer,
+    components::{AudioListener, AudioSource, MeshRenderer},
     entity::EntityId,
     scene::Scene,
     transform::Transform,
 };
-use engine_scripting::{Script, ScriptSystem};
-use glam::{Quat, Vec3};
-use std::sync::Arc;
+use engine_scripting::{AudioCommand, AudioCommandQueue, Script, ScriptSystem};
+use glam::{Quat, Vec3, Vec4};
+use std::sync::{Arc, Mutex};
 use ui::{viewport::ViewportControls, EditorUi};
 use winit::{
     application::ApplicationHandler,
@@ -55,6 +57,8 @@ struct EditorApp {
     asset_manager: Option<AssetManager>,
     physics_world: Option<PhysicsWorld>,
     script_system: Option<ScriptSystem>,
+    audio_system: Option<AudioSystem>,
+    audio_command_queue: AudioCommandQueue,
     entity_ids: Vec<EntityId>,
     time: f32,
     ui: Option<EditorUi>,
@@ -79,6 +83,7 @@ struct WgpuState {
     renderer: Renderer,
     mesh_manager: MeshManager,
     texture_manager: TextureManager,
+    material_manager: MaterialManager,
     depth_texture: wgpu::TextureView,
     skybox: Option<Skybox>,
     shadow_map: Option<ShadowMap>,
@@ -101,6 +106,11 @@ fn convert_mesh_to_gpu(mesh: &Mesh) -> Vec<GpuVertex> {
             normal: v.normal.to_array(),
             tex_coord: v.tex_coord.to_array(),
             color: v.color.unwrap_or(Vec3::ONE).to_array(),
+            // Default tangent: X-axis with positive handedness
+            tangent: v.tangent.unwrap_or(Vec4::new(1.0, 0.0, 0.0, 1.0)).to_array(),
+            // Default bitangent: Z-axis
+            bitangent: v.bitangent.unwrap_or(Vec3::Z).to_array(),
+            _padding: [0.0, 0.0],
         })
         .collect()
 }
@@ -115,6 +125,8 @@ impl EditorApp {
             asset_manager: None,
             physics_world: None,
             script_system: None,
+            audio_system: None,
+            audio_command_queue: Arc::new(Mutex::new(Vec::new())),
             entity_ids: Vec::new(),
             time: 0.0,
             ui: None,
@@ -148,6 +160,9 @@ impl EditorApp {
 
         // Create texture manager with the renderer's device
         let mut texture_manager = TextureManager::new(&renderer.device, &renderer.queue);
+
+        // Create material manager
+        let material_manager = MaterialManager::new(&renderer.device, &texture_manager);
 
         let depth_texture = renderer.create_depth_texture(size.width, size.height);
         let camera = Camera::new(size.width, size.height);
@@ -209,17 +224,20 @@ impl EditorApp {
         let white = Vec3::ONE; // White tint allows texture to show through
 
         // Stone cube for castle structures
-        let stone_cube = Mesh::cube_with_color(white);
+        let mut stone_cube = Mesh::cube_with_color(white);
+        stone_cube.calculate_tangents();
         let stone_vertices = convert_mesh_to_gpu(&stone_cube);
         mesh_manager.upload_mesh(&renderer.device, "stone_cube".to_string(), &stone_vertices, &stone_cube.indices);
 
         // Grass cube for terrain
-        let grass_cube = Mesh::cube_with_color(white);
+        let mut grass_cube = Mesh::cube_with_color(white);
+        grass_cube.calculate_tangents();
         let grass_vertices = convert_mesh_to_gpu(&grass_cube);
         mesh_manager.upload_mesh(&renderer.device, "grass_cube".to_string(), &grass_vertices, &grass_cube.indices);
 
         // Water cube for moat
-        let water_cube = Mesh::cube_with_color(white);
+        let mut water_cube = Mesh::cube_with_color(white);
+        water_cube.calculate_tangents();
         let water_vertices = convert_mesh_to_gpu(&water_cube);
         mesh_manager.upload_mesh(&renderer.device, "water_cube".to_string(), &water_vertices, &water_cube.indices);
 
@@ -230,10 +248,17 @@ impl EditorApp {
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
         PhysicsSync::initialize_physics(&mut physics_world, &scene)?;
 
+        // Initialize audio system
+        let assets_path = std::env::current_dir()?.join("assets");
+        let audio_system = AudioSystem::new(assets_path)?;
+        log::info!("Audio system initialized");
+
         // Initialize script system
         let mut script_system = ScriptSystem::new();
         script_system.initialize(&scene)?;
         script_system.start(&mut scene)?;
+        // Register audio API with scripts
+        script_system.register_audio_api(self.audio_command_queue.clone());
         log::info!("Script system initialized");
 
         // Initialize egui
@@ -335,6 +360,7 @@ impl EditorApp {
             renderer,
             mesh_manager,
             texture_manager,
+            material_manager,
             depth_texture,
             skybox,
             shadow_map,
@@ -349,6 +375,7 @@ impl EditorApp {
         self.asset_manager = Some(asset_manager);
         self.physics_world = Some(physics_world);
         self.script_system = Some(script_system);
+        self.audio_system = Some(audio_system);
         self.entity_ids = Vec::new(); // Scene loaded from file, not tracking individual entity IDs
         self.ui = Some(EditorUi::new());
         self.egui_state = Some(EguiState {
@@ -393,7 +420,7 @@ impl EditorApp {
     }
 
     fn render(&mut self) -> Result<()> {
-        let Some(wgpu_state) = &self.wgpu_state else {
+        let Some(wgpu_state) = &mut self.wgpu_state else {
             return Ok(());
         };
         let Some(camera) = &mut self.camera else {
@@ -409,6 +436,9 @@ impl EditorApp {
             return Ok(());
         };
         let Some(window) = &self.window else {
+            return Ok(());
+        };
+        let Some(asset_manager) = &mut self.asset_manager else {
             return Ok(());
         };
 
@@ -474,32 +504,28 @@ impl EditorApp {
                     }
                     ReloadEvent::TextureChanged(path) => {
                         log::info!("Texture changed: {:?}", path);
-                        if let Some(asset_manager) = &mut self.asset_manager {
-                            // Get relative path from absolute path
-                            if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
-                                let path_str = relative_path.to_string_lossy();
-                                if let Err(e) = asset_manager.reload_texture(&path_str) {
-                                    log::error!("Failed to reload texture {:?}: {}", path, e);
-                                } else {
-                                    log::info!("Successfully reloaded texture: {:?}", path);
-                                    // TODO: Update GPU texture resources
-                                }
+                        // Get relative path from absolute path
+                        if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                            let path_str = relative_path.to_string_lossy();
+                            if let Err(e) = asset_manager.reload_texture(&path_str) {
+                                log::error!("Failed to reload texture {:?}: {}", path, e);
+                            } else {
+                                log::info!("Successfully reloaded texture: {:?}", path);
+                                // TODO: Update GPU texture resources
                             }
                         }
                     }
                     ReloadEvent::ModelChanged(path) => {
                         log::info!("Model changed: {:?}", path);
-                        if let Some(asset_manager) = &mut self.asset_manager {
-                            // Get relative path from absolute path
-                            if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
-                                let path_str = relative_path.to_string_lossy();
-                                if path_str.ends_with(".gltf") || path_str.ends_with(".glb") {
-                                    if let Err(e) = asset_manager.reload_gltf(&path_str) {
-                                        log::error!("Failed to reload model {:?}: {}", path, e);
-                                    } else {
-                                        log::info!("Successfully reloaded model: {:?}", path);
-                                        // TODO: Re-upload to GPU and update entities
-                                    }
+                        // Get relative path from absolute path
+                        if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                            let path_str = relative_path.to_string_lossy();
+                            if path_str.ends_with(".gltf") || path_str.ends_with(".glb") {
+                                if let Err(e) = asset_manager.reload_gltf(&path_str) {
+                                    log::error!("Failed to reload model {:?}: {}", path, e);
+                                } else {
+                                    log::info!("Successfully reloaded model: {:?}", path);
+                                    // TODO: Re-upload to GPU and update entities
                                 }
                             }
                         }
@@ -511,19 +537,15 @@ impl EditorApp {
                         if path_str.ends_with(".png") || path_str.ends_with(".jpg") ||
                            path_str.ends_with(".jpeg") || path_str.ends_with(".bmp") {
                             // Treat as texture
-                            if let Some(asset_manager) = &mut self.asset_manager {
-                                if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
-                                    let rel_str = relative_path.to_string_lossy();
-                                    let _ = asset_manager.reload_texture(&rel_str);
-                                }
+                            if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                                let rel_str = relative_path.to_string_lossy();
+                                let _ = asset_manager.reload_texture(&rel_str);
                             }
                         } else if path_str.ends_with(".gltf") || path_str.ends_with(".glb") {
                             // Treat as model
-                            if let Some(asset_manager) = &mut self.asset_manager {
-                                if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
-                                    let rel_str = relative_path.to_string_lossy();
-                                    let _ = asset_manager.reload_gltf(&rel_str);
-                                }
+                            if let Ok(relative_path) = path.strip_prefix(asset_manager.asset_root()) {
+                                let rel_str = relative_path.to_string_lossy();
+                                let _ = asset_manager.reload_gltf(&rel_str);
                             }
                         }
                     }
@@ -545,6 +567,57 @@ impl EditorApp {
 
         // Sync physics world back to scene transforms
         PhysicsSync::sync_to_scene(physics_world, scene)?;
+
+        // Update audio system
+        if let Some(audio_system) = &mut self.audio_system {
+            // Process audio commands from scripts
+            let mut commands = self.audio_command_queue.lock().unwrap();
+            for command in commands.drain(..) {
+                match command {
+                    AudioCommand::PlaySound { path, volume } => {
+                        if let Err(e) = audio_system.play_sound(&path, volume) {
+                            log::warn!("Failed to play sound '{}': {}", path, e);
+                        }
+                    }
+                    AudioCommand::PlayMusic { path, volume, looping } => {
+                        if let Err(e) = audio_system.play_music(&path, volume, looping) {
+                            log::warn!("Failed to play music '{}': {}", path, e);
+                        }
+                    }
+                    AudioCommand::StopMusic => {
+                        audio_system.stop_music();
+                    }
+                }
+            }
+            drop(commands); // Release the lock
+
+            // Create audio listener from camera transform
+            let listener = engine_audio::AudioListener::from_transform(camera.position, Quat::IDENTITY);
+
+            // Process AudioSource components
+            for entity in scene.entities() {
+                if let Some(audio_source) = entity.get_component::<AudioSource>() {
+                    let position = entity.transform.position;
+
+                    // Play audio if marked to play on start and not currently playing
+                    if audio_source.play_on_start && !audio_source.playing {
+                        // Play 3D sound
+                        if let Err(e) = audio_system.play_3d_sound(
+                            &audio_source.audio_path,
+                            position,
+                            &listener,
+                            audio_source.volume,
+                            audio_source.max_distance,
+                        ) {
+                            log::warn!("Failed to play audio '{}': {}", audio_source.audio_path, e);
+                        } else {
+                            // Mark as playing (note: this is read-only view, so we can't actually update it)
+                            // TODO: Need mutable access to components to track playing state
+                        }
+                    }
+                }
+            }
+        }
 
         // Begin frame
         let (output, mut encoder, view) = wgpu_state.renderer.begin_frame(
@@ -697,23 +770,68 @@ impl EditorApp {
                     if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
                         let world_matrix = scene.world_matrix(entity.id);
 
-                        // Determine texture based on mesh name
-                        let texture_name = if mesh_renderer.mesh_path.contains("stone") {
-                            "stone"
-                        } else if mesh_renderer.mesh_path.contains("grass") {
-                            "grass"
-                        } else if mesh_renderer.mesh_path.contains("water") {
-                            "water"
+                        // Get material path (use default if not specified)
+                        let material_path = mesh_renderer.material_path.as_deref()
+                            .unwrap_or("materials/default.mat");
+
+                        // Get or upload material
+                        let material_handle = if let Some(handle) = wgpu_state.material_manager.get_handle(material_path) {
+                            handle
                         } else {
-                            "white" // Default white texture
+                            // Load material from asset manager
+                            let material_handle = asset_manager.load_material(material_path)
+                                .unwrap_or_else(|e| {
+                                    log::warn!("Failed to load material '{}': {}, using default", material_path, e);
+                                    AssetHandle::new(Material::default())
+                                });
+                            let material = material_handle.inner.as_ref();
+
+                            // Load required textures
+                            let albedo_handle = material.albedo_texture.as_ref()
+                                .and_then(|path| {
+                                    asset_manager.load_texture(path).ok()
+                                        .map(|tex_handle| wgpu_state.texture_manager.upload_texture(&wgpu_state.renderer.device, &wgpu_state.renderer.queue, path.to_string(), tex_handle.inner.as_ref()))
+                                })
+                                .unwrap_or_else(|| wgpu_state.texture_manager.white_texture_handle());
+
+                            let normal_handle = material.normal_texture.as_ref()
+                                .and_then(|path| {
+                                    asset_manager.load_texture(path).ok()
+                                        .map(|tex_handle| wgpu_state.texture_manager.upload_texture(&wgpu_state.renderer.device, &wgpu_state.renderer.queue, path.to_string(), tex_handle.inner.as_ref()))
+                                })
+                                .unwrap_or_else(|| wgpu_state.texture_manager.white_texture_handle());
+
+                            let metallic_roughness_handle = material.metallic_roughness_texture.as_ref()
+                                .and_then(|path| {
+                                    asset_manager.load_texture(path).ok()
+                                        .map(|tex_handle| wgpu_state.texture_manager.upload_texture(&wgpu_state.renderer.device, &wgpu_state.renderer.queue, path.to_string(), tex_handle.inner.as_ref()))
+                                })
+                                .unwrap_or_else(|| wgpu_state.texture_manager.white_texture_handle());
+
+                            let ao_handle = material.ao_texture.as_ref()
+                                .and_then(|path| {
+                                    asset_manager.load_texture(path).ok()
+                                        .map(|tex_handle| wgpu_state.texture_manager.upload_texture(&wgpu_state.renderer.device, &wgpu_state.renderer.queue, path.to_string(), tex_handle.inner.as_ref()))
+                                })
+                                .unwrap_or_else(|| wgpu_state.texture_manager.white_texture_handle());
+
+                            // Upload material to GPU
+                            wgpu_state.material_manager.upload_material(
+                                &wgpu_state.renderer.device,
+                                &wgpu_state.texture_manager,
+                                material_path.to_string(),
+                                &material,
+                                albedo_handle,
+                                Some(normal_handle),
+                                Some(metallic_roughness_handle),
+                                Some(ao_handle),
+                            )
                         };
 
-                        // Get texture bind group
-                        let texture_handle = wgpu_state.texture_manager.get_handle(texture_name)
-                            .unwrap_or(wgpu_state.texture_manager.white_texture_handle());
-                        let texture_bind_group = wgpu_state.texture_manager.get_texture(texture_handle)
-                            .map(|tex| &tex.bind_group)
-                            .unwrap();
+                        // Get material bind group
+                        let material_bind_group = wgpu_state.material_manager.get_material(material_handle)
+                            .map(|mat| &mat.bind_group)
+                            .expect("Material bind group should exist");
 
                         // Get shadow bind group (or create a dummy one if shadows disabled)
                         let shadow_bind_group = if let Some(ref shadow_bg) = shadow_sampling_bind_group {
@@ -730,8 +848,9 @@ impl EditorApp {
                             &wgpu_state.depth_texture,
                             gpu_mesh,
                             view_proj,
+                            camera.position,
                             world_matrix,
-                            texture_bind_group,
+                            material_bind_group,
                             shadow_bind_group,
                             first_mesh,
                         );

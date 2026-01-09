@@ -1,0 +1,24 @@
+# Default Material - Pure white, no textures
+# Used as fallback when no material is specified
+
+name: "Default White"
+
+# Texture paths (all null for default material)
+albedo_texture: null
+normal_texture: null
+metallic_roughness_texture: null
+ao_texture: null
+
+# PBR parameters
+base_color: [1.0, 1.0, 1.0, 1.0]  # White
+metallic: 0.0                      # Non-metallic
+roughness: 0.8                     # Fairly rough
+ao_factor: 1.0                     # Full ambient occlusion
+
+# Emission
+emissive_color: [0.0, 0.0, 0.0]
+emissive_strength: 0.0
+
+# Rendering flags
+alpha_mode: Opaque
+double_sided: false

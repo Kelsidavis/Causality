@@ -195,9 +195,19 @@ impl PostProcessPipeline {
             "fs_blur_v",
         );
 
+        // Composite pipeline needs two bind groups (scene + bloom) and push constants
+        let composite_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Composite Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout, &bind_group_layout], // Two bind groups
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::FRAGMENT,
+                range: 0..16, // Settings struct (4 floats = 16 bytes)
+            }],
+        });
+
         let composite_pipeline = Self::create_fullscreen_pipeline(
             device,
-            &pipeline_layout,
+            &composite_layout,
             &composite_shader,
             surface_format,
             "Composite Pipeline",
@@ -294,6 +304,15 @@ impl PostProcessPipeline {
             ],
         })
     }
+}
+
+/// Push constants for composite shader
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CompositePushConstants {
+    pub bloom_intensity: f32,
+    pub bloom_enabled: f32, // 0.0 or 1.0
+    pub _padding: [f32; 2],
 }
 
 /// Post-processing settings

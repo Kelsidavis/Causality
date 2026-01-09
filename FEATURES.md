@@ -7,14 +7,28 @@
 - ✅ **Multi-mesh rendering** - Efficient batch rendering of multiple objects
 - ✅ **Depth testing** - Proper 3D occlusion
 - ✅ **Custom shaders** - WGSL shader support
+- ✅ **LOD system** - Level-of-detail with distance-based switching
+- ✅ **Frustum culling** - Automatic culling of off-screen objects
+- ✅ **Skybox rendering** - Environment cubemap backgrounds
 
 ### Materials & Lighting
+- ✅ **Material system** - YAML-based materials with hot-reload
+- ✅ **Multi-texture materials** - Albedo, normal, metallic-roughness, AO maps
 - ✅ **PBR shader** - Physically-based rendering with metallic-roughness workflow
 - ✅ **Advanced PBR** - Cook-Torrance BRDF, GGX distribution, Fresnel-Schlick
+- ✅ **Normal mapping** - Tangent-space normal maps with mikktspace
+- ✅ **Shadow mapping** - 2048x2048 directional shadows with PCF
 - ✅ **Multiple light sources** - Support for up to 4 dynamic lights
 - ✅ **Tone mapping** - Reinhard tone mapping for HDR
 - ✅ **Gamma correction** - Proper color space handling
 - ✅ **Vertex colors** - Per-vertex color attributes
+- ✅ **Emissive materials** - Self-illuminating surfaces with HDR output
+
+### Post-Processing
+- ✅ **Bloom** - HDR bloom for emissive materials
+- ✅ **Multi-pass pipeline** - Bright pass, blur horizontal/vertical, composite
+- ✅ **Framebuffer system** - HDR framebuffers (Rgba16Float)
+- ✅ **Configurable effects** - Bloom intensity and threshold controls
 
 ### Camera System
 - ✅ **Perspective camera** - Configurable FOV, near/far planes
@@ -32,11 +46,14 @@
 - ✅ **Component queries** - Type-safe component access
 
 ### Asset Pipeline
+- ✅ **Material loading** - YAML/JSON material files (.mat)
 - ✅ **GLTF loading** - Full GLTF 2.0 model support
 - ✅ **Texture loading** - PNG, JPG, BMP, TGA support
-- ✅ **Procedural meshes** - Cube, plane, sphere generators
+- ✅ **Procedural meshes** - Cube, plane, sphere generators with tangents
 - ✅ **Asset caching** - Arc-based handles prevent duplicate loads
 - ✅ **GPU mesh management** - Efficient vertex/index buffer handling
+- ✅ **Material manager** - GPU material upload and caching
+- ✅ **Tangent generation** - mikktspace algorithm for normal mapping
 
 ### Serialization
 - ✅ **RON format** - Scene serialization with Rusty Object Notation
@@ -96,6 +113,37 @@
 - ✅ **Error recovery** - Failed recompilation doesn't crash engine
 - ✅ **Debouncing** - Prevents reload spam (100ms)
 - ✅ **File watching** - Automatic detection of script changes
+
+## Audio System (Rodio)
+
+### Audio Playback
+- ✅ **3D spatial audio** - Position-based sound with distance attenuation
+- ✅ **2D sound effects** - Non-positional audio playback
+- ✅ **Background music** - Looping music system
+- ✅ **Multiple formats** - WAV, OGG Vorbis, MP3 support
+- ✅ **Distance attenuation** - Quadratic falloff based on max_distance
+- ✅ **Audio listener** - Automatic camera-based listener positioning
+
+### Audio Components
+- ✅ **AudioSource component** - 3D positional audio on entities
+  - Volume control (0.0 to 1.0)
+  - Max distance for attenuation
+  - Looping support
+  - Play-on-start option
+- ✅ **AudioListener component** - Defines listener position (camera)
+
+### Script Integration
+- ✅ **Audio API** - Full audio control from Rhai scripts
+  - `play_sound(path, volume)` - Play 2D sound effect
+  - `play_music(path, volume, looping)` - Play background music
+  - `stop_music()` - Stop current music
+- ✅ **Command queue system** - Thread-safe audio commands from scripts
+
+### Audio Pipeline
+- ✅ **Asset caching** - Audio files cached after first load
+- ✅ **Auto-loading** - Loads from `assets/sounds/` and `assets/music/`
+- ✅ **Error handling** - Graceful fallback on missing/invalid audio
+- ✅ **Frame-based updates** - Audio processed in main render loop
 
 ## Editor & UI
 
@@ -193,14 +241,28 @@
 - ⚠️ **MCP IPC** - MCP server returns simulated responses (no editor connection yet)
 - ⚠️ **Asset hot-reload** - Only scripts hot-reload; textures/models detected but not reloaded
 
-### Future Enhancements (Post-Phase 8)
-- Shadow mapping (directional, point, spot lights)
-- Skybox and environment mapping
-- Post-processing effects (bloom, SSAO)
+### Future Enhancements (Post-Phase 9)
+- ✅ ~~Shadow mapping~~ - DONE in Phase 8
+- ✅ ~~Skybox~~ - DONE in Phase 8
+- ✅ ~~LOD system~~ - DONE in Phase 8
+- ✅ ~~Frustum culling~~ - DONE in Phase 8
+- ✅ ~~Bloom post-processing~~ - DONE in Phase 9
+- ✅ ~~Normal mapping~~ - DONE in Phase 9
+- ✅ ~~Material system~~ - DONE in Phase 9
+- Parallax occlusion mapping (height maps)
+- Image-based lighting (IBL with HDR environments)
+- Screen-space reflections (SSR)
+- Ambient occlusion (SSAO)
+- Cascade shadow maps (CSM for better quality)
+- Clearcoat and sheen layers
+- Subsurface scattering
 - Full asset hot-reload (textures, models)
-- Advanced physics (joints, ragdolls)
-- Audio system
-- Particle system
+- Advanced physics (joints, ragdolls, vehicles)
+- Audio system (3D positional audio)
+- Particle system (GPU particles)
+- Occlusion culling
+- Instanced rendering
+- Deferred rendering pipeline
 - UI framework (instead of egui)
 - Networking/multiplayer
 - VR support
@@ -208,10 +270,12 @@
 ## Statistics
 
 ### Codebase
-- **Total Lines**: ~10,000+ lines of Rust
-- **Shaders**: 2 WGSL shaders (basic PBR, advanced PBR)
+- **Total Lines**: ~12,000+ lines of Rust
+- **Shaders**: 3 WGSL shaders (pbr_advanced_nm, composite, tonemap/bloom)
+- **Materials**: 7 default .mat files
 - **Scripts**: 3 example Rhai scripts
-- **Documentation**: 4 markdown files, 1,000+ lines
+- **Documentation**: 7 markdown files, 3,500+ lines
+- **Test Scenes**: 2 (castle, pbr_showcase)
 
 ### Dependencies
 - wgpu 23.0
@@ -287,13 +351,24 @@
 - State preservation
 
 ### Phase 8: Advanced Features ✅
-- Enhanced PBR shader
+- Shadow mapping (2048x2048, PCF)
+- Skybox rendering
+- LOD system
+- Frustum culling
 - Raycasting
 - Character controller
-- Final documentation
+
+### Phase 9: Advanced Rendering ✅
+- Material system (YAML-based .mat files)
+- Multi-texture materials (albedo, normal, metallic-roughness, AO)
+- Normal mapping with mikktspace tangents
+- Advanced PBR (Cook-Torrance BRDF)
+- Bloom post-processing (HDR pipeline)
+- MaterialManager with caching
+- 7 default materials
 
 ---
 
-**Total Development**: 8 phases complete!
-**Status**: Production-ready for indie/educational use
+**Total Development**: 9 phases complete!
+**Status**: Production-ready with advanced graphics
 **License**: MIT

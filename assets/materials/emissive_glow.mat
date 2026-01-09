@@ -1,0 +1,24 @@
+# Emissive Glow Material
+# Glowing surface for testing bloom post-processing
+
+name: "Emissive Glow"
+
+# Texture paths
+albedo_texture: null
+normal_texture: null
+metallic_roughness_texture: null
+ao_texture: null
+
+# PBR parameters
+base_color: [0.1, 0.1, 0.2, 1.0]   # Dark base color
+metallic: 0.0
+roughness: 0.5
+ao_factor: 1.0
+
+# Emission (bright orange/yellow glow)
+emissive_color: [1.0, 0.6, 0.2]
+emissive_strength: 2.5              # Strong emission for bloom testing
+
+# Rendering flags
+alpha_mode: Opaque
+double_sided: false

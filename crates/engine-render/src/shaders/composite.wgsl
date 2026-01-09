@@ -1,13 +1,27 @@
 // Composite shader - combines scene and bloom
 
+// Scene texture (bind group 0)
 @group(0) @binding(0)
 var scene_texture: texture_2d<f32>;
 
 @group(0) @binding(1)
 var scene_sampler: sampler;
 
-// Note: For bloom compositing, we'd need a second bind group for the bloom texture
-// This is a simplified version that just passes through the scene
+// Bloom texture (bind group 1)
+@group(1) @binding(0)
+var bloom_texture: texture_2d<f32>;
+
+@group(1) @binding(1)
+var bloom_sampler: sampler;
+
+// Settings
+struct Settings {
+    bloom_intensity: f32,
+    bloom_enabled: f32, // 0.0 or 1.0
+    _padding: vec2<f32>,
+}
+
+var<push_constant> settings: Settings;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -37,13 +51,16 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Sample scene color
     let scene_color = textureSample(scene_texture, scene_sampler, in.tex_coords);
 
-    // In a full implementation, we'd sample the bloom texture here and add it
-    // let bloom_color = textureSample(bloom_texture, bloom_sampler, in.tex_coords);
-    // let bloom_intensity = 0.3;
-    // let final_color = scene_color + bloom_color * bloom_intensity;
+    // Sample bloom color
+    let bloom_color = textureSample(bloom_texture, bloom_sampler, in.tex_coords);
 
-    // For now, just pass through the scene
-    return scene_color;
+    // Additive blending: scene + bloom * intensity
+    // Only add bloom if enabled
+    let bloom_contribution = bloom_color.rgb * settings.bloom_intensity * settings.bloom_enabled;
+    let final_color = scene_color.rgb + bloom_contribution;
+
+    return vec4<f32>(final_color, scene_color.a);
 }

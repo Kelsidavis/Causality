@@ -1,0 +1,24 @@
+# Stone Bricks Material
+# Stone masonry with rough surface
+
+name: "Stone Bricks"
+
+# Texture paths
+albedo_texture: "textures/stone_bricks.png"
+normal_texture: null  # Add brick normal map for better detail
+metallic_roughness_texture: null
+ao_texture: null
+
+# PBR parameters
+base_color: [1.0, 1.0, 1.0, 1.0]
+metallic: 0.0                      # Non-metallic (stone)
+roughness: 0.85                    # Rough stone surface
+ao_factor: 1.0
+
+# Emission
+emissive_color: [0.0, 0.0, 0.0]
+emissive_strength: 0.0
+
+# Rendering flags
+alpha_mode: Opaque
+double_sided: false

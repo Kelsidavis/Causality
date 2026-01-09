@@ -1,6 +1,6 @@
 // Mesh data structure
 
-use glam::{Vec2, Vec3};
+use glam::{Vec2, Vec3, Vec4};
 
 #[derive(Debug, Clone)]
 pub struct Vertex {
@@ -8,6 +8,8 @@ pub struct Vertex {
     pub normal: Vec3,
     pub tex_coord: Vec2,
     pub color: Option<Vec3>,
+    pub tangent: Option<Vec4>,      // w component is handedness (+1 or -1)
+    pub bitangent: Option<Vec3>,
 }
 
 impl Vertex {
@@ -17,6 +19,8 @@ impl Vertex {
             normal: Vec3::Y,
             tex_coord: Vec2::ZERO,
             color: None,
+            tangent: None,
+            bitangent: None,
         }
     }
 
@@ -32,6 +36,16 @@ impl Vertex {
 
     pub fn with_color(mut self, color: Vec3) -> Self {
         self.color = Some(color);
+        self
+    }
+
+    pub fn with_tangent(mut self, tangent: Vec4) -> Self {
+        self.tangent = Some(tangent);
+        self
+    }
+
+    pub fn with_bitangent(mut self, bitangent: Vec3) -> Self {
+        self.bitangent = Some(bitangent);
         self
     }
 }
@@ -145,5 +159,92 @@ impl Mesh {
         let indices = vec![0, 1, 2, 2, 3, 0];
 
         Self::new("Plane".to_string(), vertices, indices)
+    }
+
+    /// Calculate tangents and bitangents using mikktspace algorithm
+    /// This is the industry-standard approach used by most 3D tools
+    pub fn calculate_tangents(&mut self) {
+        // Skip if no UVs (tangent space requires texture coordinates)
+        if self.vertices.is_empty() || self.indices.is_empty() {
+            log::warn!("Cannot calculate tangents: mesh has no vertices or indices");
+            return;
+        }
+
+        // Check if all vertices have valid UVs
+        let has_uvs = self.vertices.iter().all(|v| v.tex_coord != Vec2::ZERO);
+        if !has_uvs {
+            log::warn!("Cannot calculate tangents: mesh has no valid UVs");
+            return;
+        }
+
+        // Generate tangents using mikktspace
+        let tangents = {
+            let mut context = MikkTSpaceContext {
+                mesh: self,
+                tangents: vec![Vec4::ZERO; self.vertices.len()],
+            };
+
+            let result = mikktspace::generate_tangents(&mut context);
+
+            if !result {
+                log::warn!("mikktspace failed to generate tangents for mesh: {}", self.name);
+                return;
+            }
+
+            context.tangents
+        }; // context is dropped here, releasing the immutable borrow
+
+        // Apply tangents and calculate bitangents
+        for (i, vertex) in self.vertices.iter_mut().enumerate() {
+            let tangent = tangents[i];
+            vertex.tangent = Some(tangent);
+
+            // Calculate bitangent: B = (N × T) * handedness
+            let n = vertex.normal;
+            let t = tangent.truncate(); // Vec4 -> Vec3 (ignore w)
+            let handedness = tangent.w;
+            vertex.bitangent = Some(n.cross(t) * handedness);
+        }
+
+        log::info!("Generated tangents for mesh: {}", self.name);
+    }
+}
+
+// mikktspace integration
+struct MikkTSpaceContext<'a> {
+    mesh: &'a Mesh,
+    tangents: Vec<Vec4>,
+}
+
+impl<'a> mikktspace::Geometry for MikkTSpaceContext<'a> {
+    fn num_faces(&self) -> usize {
+        self.mesh.indices.len() / 3
+    }
+
+    fn num_vertices_of_face(&self, _face: usize) -> usize {
+        3 // Always triangles
+    }
+
+    fn position(&self, face: usize, vert: usize) -> [f32; 3] {
+        let index = self.mesh.indices[face * 3 + vert] as usize;
+        let pos = self.mesh.vertices[index].position;
+        [pos.x, pos.y, pos.z]
+    }
+
+    fn normal(&self, face: usize, vert: usize) -> [f32; 3] {
+        let index = self.mesh.indices[face * 3 + vert] as usize;
+        let normal = self.mesh.vertices[index].normal;
+        [normal.x, normal.y, normal.z]
+    }
+
+    fn tex_coord(&self, face: usize, vert: usize) -> [f32; 2] {
+        let index = self.mesh.indices[face * 3 + vert] as usize;
+        let uv = self.mesh.vertices[index].tex_coord;
+        [uv.x, uv.y]
+    }
+
+    fn set_tangent_encoded(&mut self, tangent: [f32; 4], face: usize, vert: usize) {
+        let index = self.mesh.indices[face * 3 + vert] as usize;
+        self.tangents[index] = Vec4::from_array(tangent);
     }
 }

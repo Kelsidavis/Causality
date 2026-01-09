@@ -1,6 +1,7 @@
 // Asset Manager - handles loading and caching of assets
 
-use crate::loaders::gltf_loader;
+use crate::loaders::{gltf_loader, material_loader};
+use crate::material::Material;
 use crate::mesh::Mesh;
 use crate::texture::Texture;
 use anyhow::{Context, Result};
@@ -30,6 +31,7 @@ pub struct AssetManager {
     asset_root: PathBuf,
     meshes: HashMap<PathBuf, AssetHandle<Vec<Mesh>>>,
     textures: HashMap<PathBuf, AssetHandle<Texture>>,
+    materials: HashMap<PathBuf, AssetHandle<Material>>,
 }
 
 impl AssetManager {
@@ -38,6 +40,7 @@ impl AssetManager {
             asset_root: asset_root.as_ref().to_path_buf(),
             meshes: HashMap::new(),
             textures: HashMap::new(),
+            materials: HashMap::new(),
         }
     }
 
@@ -91,6 +94,26 @@ impl AssetManager {
         Ok(handle)
     }
 
+    /// Load a material (with caching)
+    pub fn load_material(&mut self, path: &str) -> Result<AssetHandle<Material>> {
+        let full_path = self.full_path(path);
+
+        // Check cache
+        if let Some(handle) = self.materials.get(&full_path) {
+            return Ok(handle.clone());
+        }
+
+        // Load from disk
+        log::info!("Loading material: {:?}", full_path);
+        let material = material_loader::load_material(&full_path)
+            .with_context(|| format!("Failed to load material: {}", path))?;
+
+        let handle = AssetHandle::new(material);
+        self.materials.insert(full_path, handle.clone());
+
+        Ok(handle)
+    }
+
     /// Create a mesh directly (and cache it)
     pub fn create_mesh(&mut self, name: String, mesh: Mesh) -> AssetHandle<Vec<Mesh>> {
         let path = PathBuf::from(format!("__generated__/{}", name));
@@ -109,10 +132,16 @@ impl AssetManager {
         self.textures.len()
     }
 
+    /// Get cached material count
+    pub fn material_cache_size(&self) -> usize {
+        self.materials.len()
+    }
+
     /// Clear all caches
     pub fn clear_cache(&mut self) {
         self.meshes.clear();
         self.textures.clear();
+        self.materials.clear();
         log::info!("Asset cache cleared");
     }
 
@@ -140,6 +169,18 @@ impl AssetManager {
         self.load_gltf(path)
     }
 
+    /// Reload a material (invalidate cache and reload from disk)
+    pub fn reload_material(&mut self, path: &str) -> Result<AssetHandle<Material>> {
+        let full_path = self.full_path(path);
+
+        // Remove from cache
+        self.materials.remove(&full_path);
+
+        // Force reload
+        log::info!("Hot-reloading material: {:?}", full_path);
+        self.load_material(path)
+    }
+
     /// Check if a texture is loaded in cache
     pub fn has_texture(&self, path: &str) -> bool {
         let full_path = self.full_path(path);
@@ -150,6 +191,12 @@ impl AssetManager {
     pub fn has_model(&self, path: &str) -> bool {
         let full_path = self.full_path(path);
         self.meshes.contains_key(&full_path)
+    }
+
+    /// Check if a material is loaded in cache
+    pub fn has_material(&self, path: &str) -> bool {
+        let full_path = self.full_path(path);
+        self.materials.contains_key(&full_path)
     }
 }
 

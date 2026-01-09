@@ -1,0 +1,24 @@
+# Water Material
+# Water surface with reflective properties
+
+name: "Water"
+
+# Texture paths
+albedo_texture: "textures/water.png"
+normal_texture: null  # Add water normal map for waves
+metallic_roughness_texture: null
+ao_texture: null
+
+# PBR parameters
+base_color: [0.9, 0.95, 1.0, 0.7]  # Slight blue tint with transparency
+metallic: 0.1                       # Slightly metallic (water reflects)
+roughness: 0.1                      # Very smooth (water is glossy)
+ao_factor: 1.0
+
+# Emission
+emissive_color: [0.0, 0.0, 0.0]
+emissive_strength: 0.0
+
+# Rendering flags
+alpha_mode: Blend                   # Support transparency
+double_sided: false

@@ -1,0 +1,218 @@
+(
+    name: "PBR Showcase - Advanced Rendering Features",
+    entities: {
+        // Ground plane with grass
+        (1): (
+            id: (1),
+            name: "Ground",
+            transform: (
+                position: (0.0, -0.5, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (20.0, 0.1, 20.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "grass_cube",
+                    material_path: Some("materials/grass.mat"),
+                ),
+            ],
+        ),
+
+        // Metallic spheres row (varying roughness)
+        (10): (
+            id: (10),
+            name: "Polished Metal Sphere",
+            transform: (
+                position: (-6.0, 1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/metal_polished.mat"),
+                ),
+            ],
+        ),
+
+        (11): (
+            id: (11),
+            name: "Stone Brick Cube",
+            transform: (
+                position: (-3.0, 1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/stone_bricks.mat"),
+                ),
+            ],
+        ),
+
+        (12): (
+            id: (12),
+            name: "Default White Cube",
+            transform: (
+                position: (0.0, 1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/default.mat"),
+                ),
+            ],
+        ),
+
+        (13): (
+            id: (13),
+            name: "Grass Cube",
+            transform: (
+                position: (3.0, 1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "grass_cube",
+                    material_path: Some("materials/grass.mat"),
+                ),
+            ],
+        ),
+
+        (14): (
+            id: (14),
+            name: "Water Cube",
+            transform: (
+                position: (6.0, 1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "water_cube",
+                    material_path: Some("materials/water.mat"),
+                ),
+            ],
+        ),
+
+        // Emissive objects for bloom testing (back row)
+        (20): (
+            id: (20),
+            name: "Emissive Glow Left",
+            transform: (
+                position: (-3.0, 1.0, -4.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (0.8, 0.8, 0.8),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/emissive_glow.mat"),
+                ),
+            ],
+        ),
+
+        (21): (
+            id: (21),
+            name: "Emissive Glow Right",
+            transform: (
+                position: (3.0, 1.0, -4.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (0.8, 0.8, 0.8),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/emissive_glow.mat"),
+                ),
+            ],
+        ),
+
+        // Tower structures with stone (front row)
+        (30): (
+            id: (30),
+            name: "Stone Tower Left",
+            transform: (
+                position: (-6.0, 2.0, 4.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 4.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/stone_bricks.mat"),
+                ),
+            ],
+        ),
+
+        (31): (
+            id: (31),
+            name: "Stone Tower Right",
+            transform: (
+                position: (6.0, 2.0, 4.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 4.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/stone_bricks.mat"),
+                ),
+            ],
+        ),
+
+        // Metallic platform
+        (40): (
+            id: (40),
+            name: "Metal Platform",
+            transform: (
+                position: (0.0, 0.3, -4.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (8.0, 0.2, 3.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/metal_polished.mat"),
+                ),
+            ],
+        ),
+    },
+)
