@@ -5,12 +5,19 @@ use anyhow::Result;
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
+// WGSL alignment: vec3 needs 16-byte alignment, vec2 needs 8-byte alignment
+// Total size must be multiple of 16 (largest alignment = mat4x4)
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct WaterUniforms {
-    pub view_proj: [[f32; 4]; 4],
-    pub camera_pos: [f32; 3],
-    pub time: f32,
+    pub view_proj: [[f32; 4]; 4],   // 64 bytes @ 0
+    pub camera_pos: [f32; 3],        // 12 bytes @ 64
+    pub time: f32,                   // 4 bytes @ 76
+    pub flow_direction: [f32; 2],    // 8 bytes @ 80
+    pub flow_speed: f32,             // 4 bytes @ 88
+    pub _pad1: f32,                  // 4 bytes @ 92 (align vec2 to 8)
+    pub _padding: [f32; 2],          // 8 bytes @ 96
+    pub _pad2: [f32; 2],             // 8 bytes @ 104, total 112
 }
 
 #[repr(C)]
@@ -43,6 +50,11 @@ impl WaterRenderer {
             view_proj: Mat4::IDENTITY.to_cols_array_2d(),
             camera_pos: [0.0, 0.0, 0.0],
             time: 0.0,
+            flow_direction: [1.0, 0.0],
+            flow_speed: 0.0,
+            _pad1: 0.0,
+            _padding: [0.0, 0.0],
+            _pad2: [0.0, 0.0],
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -159,11 +171,18 @@ impl WaterRenderer {
         view_proj: Mat4,
         camera_pos: Vec3,
         time: f32,
+        flow_direction: [f32; 2],
+        flow_speed: f32,
     ) {
         let uniforms = WaterUniforms {
             view_proj: view_proj.to_cols_array_2d(),
             camera_pos: camera_pos.to_array(),
             time,
+            flow_direction,
+            flow_speed,
+            _pad1: 0.0,
+            _padding: [0.0, 0.0],
+            _pad2: [0.0, 0.0],
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
     }

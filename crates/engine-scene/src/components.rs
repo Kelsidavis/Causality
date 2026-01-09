@@ -204,3 +204,48 @@ impl Default for ParticleEmitter {
 }
 
 impl_component!(ParticleEmitter);
+
+/// Water plane component - renders animated water with waves and fresnel
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Water {
+    pub mesh_path: String,
+    pub texture_path: Option<String>,
+    pub wave_speed: f32,
+    pub wave_frequency: f32,
+    pub wave_amplitude: f32,
+    pub color: [f32; 3],
+    pub transparency: f32,
+    /// Flow direction (normalized XZ)
+    pub flow_direction: [f32; 2],
+    /// Flow speed in units per second
+    pub flow_speed: f32,
+}
+
+impl Water {
+    pub fn new(mesh_path: String) -> Self {
+        Self {
+            mesh_path,
+            texture_path: Some("textures/water.png".to_string()),
+            wave_speed: 0.5,
+            wave_frequency: 2.0,
+            wave_amplitude: 0.1,
+            color: [0.2, 0.5, 0.8], // Blue-ish water
+            transparency: 0.6,
+            flow_direction: [1.0, 0.0], // Flow in +X direction
+            flow_speed: 0.0, // No flow by default
+        }
+    }
+
+    pub fn with_texture(mut self, texture_path: String) -> Self {
+        self.texture_path = Some(texture_path);
+        self
+    }
+}
+
+impl Default for Water {
+    fn default() -> Self {
+        Self::new("water_cube".to_string())
+    }
+}
+
+impl_component!(Water);

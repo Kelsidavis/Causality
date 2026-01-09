@@ -9,7 +9,7 @@ use clap::Parser;
 use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent};
 use wgpu::util::DeviceExt;
 use engine_audio::AudioSystem;
-use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody};
+use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody, BuoyancySystem, WaterVolume};
 use engine_render::{
     camera::Camera,
     gpu_mesh::GpuVertex,
@@ -21,9 +21,10 @@ use engine_render::{
     shadow::ShadowMap,
     skybox::Skybox,
     texture_manager::TextureManager,
+    water::WaterRenderer,
 };
 use engine_scene::{
-    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter},
+    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water},
     entity::EntityId,
     scene::Scene,
     transform::Transform,
@@ -57,6 +58,7 @@ struct EditorApp {
     scene: Option<Scene>,
     asset_manager: Option<AssetManager>,
     physics_world: Option<PhysicsWorld>,
+    buoyancy_system: Option<BuoyancySystem>,
     script_system: Option<ScriptSystem>,
     audio_system: Option<AudioSystem>,
     audio_command_queue: AudioCommandQueue,
@@ -88,6 +90,7 @@ struct WgpuState {
     depth_texture: wgpu::TextureView,
     skybox: Option<Skybox>,
     shadow_map: Option<ShadowMap>,
+    water_renderer: Option<WaterRenderer>,
     camera_bind_group_layout: wgpu::BindGroupLayout,
     camera_bind_group: Option<wgpu::BindGroup>,
     camera_uniform_buffer: wgpu::Buffer,
@@ -128,6 +131,7 @@ impl EditorApp {
             scene: None,
             asset_manager: None,
             physics_world: None,
+            buoyancy_system: None,
             script_system: None,
             audio_system: None,
             audio_command_queue: Arc::new(Mutex::new(Vec::new())),
@@ -365,6 +369,19 @@ impl EditorApp {
             engine_render::particle_renderer::ParticleBlendMode::Alpha,
         ).ok();
 
+        // Create water renderer
+        let water_renderer = if let Some(ref shadow_map) = shadow_map {
+            let shadow_sampling_layout = ShadowMap::create_sampling_bind_group_layout(&renderer.device);
+            WaterRenderer::new(
+                &renderer.device,
+                renderer.surface_config.format,
+                texture_manager.bind_group_layout(),
+                &shadow_sampling_layout,
+            ).ok()
+        } else {
+            None
+        };
+
         self.window = Some(window.clone());
         self.wgpu_state = Some(WgpuState {
             instance,
@@ -376,6 +393,7 @@ impl EditorApp {
             depth_texture,
             skybox,
             shadow_map,
+            water_renderer,
             camera_bind_group_layout,
             camera_bind_group: Some(camera_bind_group),
             camera_uniform_buffer,
@@ -389,6 +407,7 @@ impl EditorApp {
         self.scene = Some(scene);
         self.asset_manager = Some(asset_manager);
         self.physics_world = Some(physics_world);
+        self.buoyancy_system = Some(BuoyancySystem::new());
         self.script_system = Some(script_system);
         self.audio_system = Some(audio_system);
         self.entity_ids = Vec::new(); // Scene loaded from file, not tracking individual entity IDs
@@ -459,6 +478,9 @@ impl EditorApp {
 
         // Fixed time step for physics (60fps)
         let dt = 1.0 / 60.0;
+
+        // Update elapsed time for animations
+        self.time += dt;
 
         // Process file-based IPC commands from MCP server
         if let Some(file_ipc) = &mut self.file_ipc {
@@ -576,6 +598,28 @@ impl EditorApp {
 
         // Update scripts
         script_system.update(scene, dt)?;
+
+        // Sync Water components to buoyancy system
+        if let Some(buoyancy_system) = &mut self.buoyancy_system {
+            // Clear and rebuild water volumes from Water components
+            buoyancy_system.water_volumes.clear();
+            for entity in scene.entities() {
+                if let Some(water) = entity.get_component::<Water>() {
+                    let transform = &entity.transform;
+                    // Create water volume from Water component with flow
+                    let flow_dir = Vec3::new(water.flow_direction[0], 0.0, water.flow_direction[1]);
+                    let water_volume = WaterVolume::new(
+                        transform.position,
+                        transform.scale * 2.0, // Scale is half-extents, volume needs full size
+                        transform.position.y + transform.scale.y, // Top of water
+                    ).with_flow(flow_dir, water.flow_speed);
+                    buoyancy_system.add_water_volume(water_volume);
+                }
+            }
+
+            // Apply buoyancy forces to physics bodies
+            buoyancy_system.update(&mut physics_world.rigid_body_set, scene);
+        }
 
         // Step physics simulation
         physics_world.step(dt);
@@ -995,6 +1039,70 @@ impl EditorApp {
                             first_mesh,
                         );
                         first_mesh = false;
+                    }
+                }
+            }
+        }
+
+        // Render water (transparent, after opaque objects)
+        if let Some(ref water_renderer) = wgpu_state.water_renderer {
+            for entity in scene.entities() {
+                if let Some(water) = entity.get_component::<Water>() {
+                    // Update water uniforms with flow per entity
+                    water_renderer.update_uniforms(
+                        &wgpu_state.renderer.queue,
+                        view_proj,
+                        camera.position,
+                        self.time,
+                        water.flow_direction,
+                        water.flow_speed,
+                    );
+                    if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&water.mesh_path) {
+                        if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
+                            let world_matrix = scene.world_matrix(entity.id);
+
+                            // Get water texture
+                            let texture_path = water.texture_path.as_deref().unwrap_or("water");
+                            let texture_handle = wgpu_state.texture_manager.get_handle(texture_path)
+                                .unwrap_or_else(|| wgpu_state.texture_manager.white_texture_handle());
+                            let texture_bind_group = &wgpu_state.texture_manager.get_texture(texture_handle)
+                                .expect("Texture should exist").bind_group;
+
+                            // Get shadow bind group
+                            if let Some(ref shadow_bg) = shadow_sampling_bind_group {
+                                // Create water render pass
+                                let mut water_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("Water Render Pass"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &view,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Load, // Preserve previous content
+                                            store: wgpu::StoreOp::Store,
+                                        },
+                                        depth_slice: None,
+                                    })],
+                                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                        view: &wgpu_state.depth_texture,
+                                        depth_ops: Some(wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: wgpu::StoreOp::Store,
+                                        }),
+                                        stencil_ops: None,
+                                    }),
+                                    timestamp_writes: None,
+                                    occlusion_query_set: None,
+                                });
+
+                                water_renderer.render(
+                                    &mut water_pass,
+                                    gpu_mesh,
+                                    world_matrix,
+                                    texture_bind_group,
+                                    shadow_bg,
+                                );
+                            }
+                        }
                     }
                 }
             }

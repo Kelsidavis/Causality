@@ -10,6 +10,10 @@ pub struct WaterVolume {
     pub water_level: f32,
     pub density: f32, // Water density (typically 1000 kg/m³)
     pub drag_coefficient: f32,
+    /// Flow direction (normalized)
+    pub flow_direction: Vec3,
+    /// Flow speed in units per second
+    pub flow_speed: f32,
 }
 
 impl Default for WaterVolume {
@@ -20,6 +24,8 @@ impl Default for WaterVolume {
             water_level: 0.0,
             density: 1000.0,
             drag_coefficient: 0.5,
+            flow_direction: Vec3::X,
+            flow_speed: 0.0,
         }
     }
 }
@@ -32,6 +38,26 @@ impl WaterVolume {
             water_level,
             ..Default::default()
         }
+    }
+
+    pub fn with_flow(mut self, direction: Vec3, speed: f32) -> Self {
+        self.flow_direction = direction.normalize_or_zero();
+        self.flow_speed = speed;
+        self
+    }
+
+    /// Calculate flow force on a submerged object
+    pub fn calculate_flow_force(&self, position: Vec3, cross_section_area: f32) -> Vec3 {
+        if !self.is_underwater(position) || self.flow_speed <= 0.0 {
+            return Vec3::ZERO;
+        }
+
+        // Flow force proportional to flow speed and cross section
+        // F = 0.5 * ρ * v² * Cd * A (similar to drag but in flow direction)
+        let flow_magnitude = 0.5 * self.density * self.flow_speed * self.flow_speed
+            * self.drag_coefficient * cross_section_area * 0.1; // Scale down for gameplay
+
+        self.flow_direction * flow_magnitude
     }
 
     /// Check if a point is underwater

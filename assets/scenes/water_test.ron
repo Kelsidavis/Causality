@@ -1,0 +1,98 @@
+(
+    name: "Water Test Scene",
+    entities: {
+        // Ground plane
+        (1): (
+            id: (1),
+            name: "Ground",
+            transform: (
+                position: (0.0, -1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (20.0, 0.1, 20.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "grass_cube",
+                    material_path: Some("materials/grass.mat"),
+                ),
+            ],
+        ),
+
+        // Water plane
+        (2): (
+            id: (2),
+            name: "Water",
+            transform: (
+                position: (0.0, 0.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (10.0, 1.0, 10.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "Water",
+                    mesh_path: "water_cube",
+                    texture_path: Some("water"),
+                    wave_speed: 1.5,
+                    wave_frequency: 0.8,
+                    wave_amplitude: 0.3,
+                    color: [0.2, 0.5, 0.8],
+                    transparency: 0.6,
+                    flow_direction: [1.0, 0.3],
+                    flow_speed: 2.0,
+                ),
+            ],
+        ),
+
+        // Reference cube
+        (3): (
+            id: (3),
+            name: "Reference Cube",
+            transform: (
+                position: (3.0, 1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/stone_bricks.mat"),
+                ),
+            ],
+        ),
+
+        // Another cube in water
+        (4): (
+            id: (4),
+            name: "Submerged Cube",
+            transform: (
+                position: (-2.0, -0.3, 2.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/stone_bricks.mat"),
+                ),
+            ],
+        ),
+    },
+    next_id: 10,
+    root_entities: [
+        (1),
+        (2),
+        (3),
+        (4),
+    ],
+)

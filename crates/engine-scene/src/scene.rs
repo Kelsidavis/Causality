@@ -171,6 +171,9 @@ impl Scene {
             if let Some(particle_emitter) = entity.get_component::<ParticleEmitter>() {
                 components.push(SerializedComponent::ParticleEmitter(particle_emitter.clone()));
             }
+            if let Some(water) = entity.get_component::<Water>() {
+                components.push(SerializedComponent::Water(water.clone()));
+            }
 
             serialized_entities.insert(
                 *id,
@@ -212,6 +215,7 @@ impl Scene {
                     SerializedComponent::Camera(c) => entity.add_component(c),
                     SerializedComponent::Light(c) => entity.add_component(c),
                     SerializedComponent::ParticleEmitter(c) => entity.add_component(c),
+                    SerializedComponent::Water(c) => entity.add_component(c),
                     SerializedComponent::Generic { .. } => {
                         // Generic components are not deserialized at this level
                         // They should be handled by extension systems
