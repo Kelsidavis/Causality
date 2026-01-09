@@ -53,10 +53,10 @@ struct VertexOutput {
     @location(5) view_direction: vec3<f32>,
 }
 
-// Wave parameters - very subtle for calm water
-const WAVE_SPEED: f32 = 0.1;
-const WAVE_FREQUENCY: f32 = 0.3;
-const WAVE_AMPLITUDE: f32 = 0.01;
+// Wave parameters - subtle calm water with gentle ripples
+const WAVE_SPEED: f32 = 0.2;
+const WAVE_FREQUENCY: f32 = 0.5;
+const WAVE_AMPLITUDE: f32 = 0.04;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -194,8 +194,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Apply lighting
     let lit_color = final_color * lighting;
 
-    // More consistent transparency
-    let alpha = 0.5 + fresnel_factor * 0.15;
+    // Edge blending - vertex color brightness controls transparency
+    // Interior water (color=1.0) is more opaque, edges (color=0.5) fade out
+    let edge_factor = (in.color.r + in.color.g + in.color.b) / 3.0;
+    let base_alpha = mix(0.1, 0.6, edge_factor); // Edges are more transparent
+    let alpha = base_alpha + fresnel_factor * 0.15;
 
-    return vec4<f32>(lit_color, alpha);
+    // Subtle foam particles at edges
+    let foam_intensity = 1.0 - edge_factor; // More foam at edges
+    let foam_noise1 = fract(sin(dot(in.world_position.xz * 3.7 + uniforms.time * 0.08, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+    let foam_noise2 = fract(sin(dot(in.world_position.xz * 5.3 - uniforms.time * 0.05, vec2<f32>(39.346, 11.135))) * 43758.5453);
+    let foam_noise3 = fract(sin(dot(in.world_position.xz * 7.1 + uniforms.time * 0.03, vec2<f32>(71.235, 29.847))) * 43758.5453);
+    let foam_sparkle = smoothstep(0.88, 0.96, foam_noise1) + smoothstep(0.90, 0.97, foam_noise2) * 0.6 + smoothstep(0.92, 0.98, foam_noise3) * 0.4;
+    let foam_color = lit_color + vec3<f32>(foam_sparkle * foam_intensity * 0.5);
+
+    return vec4<f32>(foam_color, alpha);
 }
