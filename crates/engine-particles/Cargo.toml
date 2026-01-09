@@ -5,5 +5,9 @@ edition = "2021"
 
 [dependencies]
 glam = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { version = "1.14", features = ["derive"] }
+serde = { workspace = true }
 anyhow = { workspace = true }
+log = { workspace = true }
 rand = "0.8"

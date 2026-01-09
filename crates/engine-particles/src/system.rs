@@ -1,154 +1,123 @@
-// Particle system - manages all particle emitters and active particles
+// Particle system management
 
-use crate::emitter::ParticleEmitter;
-use crate::particle::{Particle, ParticleSettings};
+use crate::emitter::EmitterProperties;
+use crate::particle::GpuParticle;
 use glam::Vec3;
+use std::collections::VecDeque;
 
-/// Particle system manager
+/// Particle system managing a pool of particles
 pub struct ParticleSystem {
-    /// All active particles
-    particles: Vec<Particle>,
-    /// All registered emitters
-    emitters: Vec<ParticleEmitter>,
     /// Maximum number of particles
-    max_particles: usize,
+    pub max_particles: u32,
+
+    /// Currently active particles
+    pub particles: Vec<GpuParticle>,
+
+    /// Free particle indices for reuse
+    free_indices: VecDeque<usize>,
+
+    /// Accumulator for spawning (handles fractional rates)
+    spawn_accumulator: f32,
+
+    /// Emitter properties
+    pub properties: EmitterProperties,
+
+    /// World position of emitter
+    pub position: Vec3,
+
+    /// Is emitter enabled
+    pub enabled: bool,
 }
 
 impl ParticleSystem {
     /// Create a new particle system
-    pub fn new(max_particles: usize) -> Self {
+    pub fn new(max_particles: u32, properties: EmitterProperties) -> Self {
+        let particles = vec![GpuParticle::default(); max_particles as usize];
+        let free_indices: VecDeque<usize> = (0..max_particles as usize).collect();
+
         Self {
-            particles: Vec::with_capacity(max_particles),
-            emitters: Vec::new(),
             max_particles,
+            particles,
+            free_indices,
+            spawn_accumulator: 0.0,
+            properties,
+            position: Vec3::ZERO,
+            enabled: true,
         }
     }
 
-    /// Add an emitter
-    pub fn add_emitter(&mut self, emitter: ParticleEmitter) {
-        self.emitters.push(emitter);
+    /// Update particle system (spawn new particles)
+    pub fn update(&mut self, delta_time: f32) {
+        if !self.enabled {
+            return;
+        }
+
+        // Calculate how many particles to spawn
+        self.spawn_accumulator += self.properties.rate * delta_time;
+
+        let particles_to_spawn = self.spawn_accumulator.floor() as u32;
+        self.spawn_accumulator -= particles_to_spawn as f32;
+
+        // Spawn particles
+        for _ in 0..particles_to_spawn {
+            self.spawn_particle();
+        }
     }
 
-    /// Remove an emitter by index
-    pub fn remove_emitter(&mut self, index: usize) {
-        if index < self.emitters.len() {
-            self.emitters.remove(index);
+    /// Spawn a single particle
+    fn spawn_particle(&mut self) {
+        // Get a free particle index
+        let Some(index) = self.free_indices.pop_front() else {
+            // No free particles, pool is full
+            return;
+        };
+
+        // Sample position within emitter shape
+        let local_pos = self.properties.shape.sample_position();
+        let world_pos = self.position + local_pos;
+
+        // Sample velocity
+        let velocity = self.properties.sample_velocity();
+
+        // Sample lifetime
+        let lifetime = self.properties.sample_lifetime();
+
+        // Create particle
+        let particle = GpuParticle::new(
+            world_pos,
+            velocity,
+            self.properties.initial_color,
+            self.properties.initial_size,
+            lifetime,
+        );
+
+        self.particles[index] = particle;
+    }
+
+    /// Kill dead particles and return them to the pool
+    pub fn collect_dead_particles(&mut self) {
+        for (i, particle) in self.particles.iter_mut().enumerate() {
+            if !particle.is_alive() && particle.lifetime > 0.0 {
+                // Particle just died, return to pool
+                particle.kill();
+                self.free_indices.push_back(i);
+            }
         }
     }
 
     /// Get number of active particles
-    pub fn particle_count(&self) -> usize {
-        self.particles.len()
+    pub fn active_particle_count(&self) -> usize {
+        self.max_particles as usize - self.free_indices.len()
     }
 
-    /// Get number of emitters
-    pub fn emitter_count(&self) -> usize {
-        self.emitters.len()
-    }
-
-    /// Get all active particles
-    pub fn particles(&self) -> &[Particle] {
+    /// Get particles as slice for GPU upload
+    pub fn particles_slice(&self) -> &[GpuParticle] {
         &self.particles
-    }
-
-    /// Get mutable access to emitters
-    pub fn emitters_mut(&mut self) -> &mut [ParticleEmitter] {
-        &mut self.emitters
-    }
-
-    /// Update all particles and emitters
-    pub fn update(&mut self, delta_time: f32) {
-        // Update existing particles
-        self.particles.retain_mut(|particle| {
-            let alive = particle.update(delta_time, particle.velocity);
-
-            // Update color and size based on age
-            if alive {
-                let age = particle.normalized_age();
-                // Color would be updated here if we had settings
-                // For now, fade alpha
-                particle.color.w = 1.0 - age;
-            }
-
-            alive
-        });
-
-        // Update emitters and spawn new particles
-        for emitter in &mut self.emitters {
-            let new_particles = emitter.update(delta_time);
-
-            for particle in new_particles {
-                if self.particles.len() < self.max_particles {
-                    self.particles.push(particle);
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-
-    /// Clear all particles
-    pub fn clear_particles(&mut self) {
-        self.particles.clear();
-    }
-
-    /// Clear all emitters
-    pub fn clear_emitters(&mut self) {
-        self.emitters.clear();
-    }
-
-    /// Clear everything
-    pub fn clear(&mut self) {
-        self.particles.clear();
-        self.emitters.clear();
     }
 }
 
 impl Default for ParticleSystem {
     fn default() -> Self {
-        Self::new(10000)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::emitter::EmitterShape;
-
-    #[test]
-    fn test_particle_system_basic() {
-        let mut system = ParticleSystem::new(100);
-
-        let settings = ParticleSettings::default();
-        let emitter = ParticleEmitter::new(Vec3::ZERO, EmitterShape::Point, settings);
-
-        system.add_emitter(emitter);
-        assert_eq!(system.emitter_count(), 1);
-
-        // Update for 1 second
-        system.update(1.0);
-
-        // Should have spawned some particles
-        assert!(system.particle_count() > 0);
-    }
-
-    #[test]
-    fn test_max_particles() {
-        let mut system = ParticleSystem::new(10);
-
-        let settings = ParticleSettings {
-            emission_rate: 100.0,
-            ..Default::default()
-        };
-
-        let mut emitter = ParticleEmitter::new(Vec3::ZERO, EmitterShape::Point, settings);
-        emitter.emission_rate = 100.0;
-
-        system.add_emitter(emitter);
-
-        // Update for 1 second - should cap at 10 particles
-        system.update(1.0);
-
-        assert!(system.particle_count() <= 10);
+        Self::new(1000, EmitterProperties::default())
     }
 }

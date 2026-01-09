@@ -1,94 +1,47 @@
-// Particle emitter - spawns particles based on shape and settings
+// Particle emitter shapes and properties
 
-use crate::particle::{Particle, ParticleSettings};
-use glam::{Vec3, Vec4};
-use rand::Rng;
+use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
-/// Emitter shape types
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Shape of the particle emitter
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EmitterShape {
     /// Emit from a single point
     Point,
+
     /// Emit from within a sphere
     Sphere { radius: f32 },
+
     /// Emit from within a cone
     Cone { angle: f32, radius: f32 },
+
     /// Emit from within a box
     Box { size: Vec3 },
+
+    /// Emit from a flat circle
+    Circle { radius: f32 },
 }
 
-/// Particle emitter
-pub struct ParticleEmitter {
-    /// Emitter position in world space
-    pub position: Vec3,
-    /// Emitter direction (for cone)
-    pub direction: Vec3,
-    /// Emitter shape
-    pub shape: EmitterShape,
-    /// Particle settings
-    pub settings: ParticleSettings,
-    /// Emission rate (particles per second)
-    pub emission_rate: f32,
-    /// Whether the emitter is active
-    pub active: bool,
-    /// Accumulated emission time
-    emission_accumulator: f32,
+impl Default for EmitterShape {
+    fn default() -> Self {
+        EmitterShape::Point
+    }
 }
 
-impl ParticleEmitter {
-    /// Create a new emitter
-    pub fn new(position: Vec3, shape: EmitterShape, settings: ParticleSettings) -> Self {
-        Self {
-            position,
-            direction: Vec3::Y,
-            shape,
-            settings,
-            emission_rate: 10.0,
-            active: true,
-            emission_accumulator: 0.0,
-        }
-    }
-
-    /// Set emission rate
-    pub fn with_rate(mut self, rate: f32) -> Self {
-        self.emission_rate = rate;
-        self
-    }
-
-    /// Set direction (for cone emitters)
-    pub fn with_direction(mut self, direction: Vec3) -> Self {
-        self.direction = direction.normalize();
-        self
-    }
-
-    /// Update emitter and spawn particles
-    pub fn update(&mut self, delta_time: f32) -> Vec<Particle> {
-        if !self.active {
-            return Vec::new();
-        }
-
-        let mut particles = Vec::new();
-        self.emission_accumulator += delta_time * self.emission_rate;
-
-        while self.emission_accumulator >= 1.0 {
-            particles.push(self.spawn_particle());
-            self.emission_accumulator -= 1.0;
-        }
-
-        particles
-    }
-
-    /// Spawn a single particle
-    fn spawn_particle(&self) -> Particle {
+impl EmitterShape {
+    /// Get a random position within the emitter shape
+    pub fn sample_position(&self) -> Vec3 {
+        use rand::Rng;
         let mut rng = rand::thread_rng();
 
-        // Random position based on shape
-        let offset = match self.shape {
+        match self {
             EmitterShape::Point => Vec3::ZERO,
+
             EmitterShape::Sphere { radius } => {
+                // Uniform sampling in sphere
                 let theta = rng.gen_range(0.0..std::f32::consts::TAU);
                 let phi = rng.gen_range(0.0..std::f32::consts::PI);
-                let r = rng.gen_range(0.0..radius);
+                let r = rng.gen_range(0.0..*radius);
 
                 Vec3::new(
                     r * phi.sin() * theta.cos(),
@@ -96,78 +49,163 @@ impl ParticleEmitter {
                     r * phi.cos(),
                 )
             }
+
             EmitterShape::Cone { angle, radius } => {
+                // Sample within cone
                 let theta = rng.gen_range(0.0..std::f32::consts::TAU);
-                let phi = rng.gen_range(0.0..angle.to_radians());
-                let r = rng.gen_range(0.0..radius);
+                let cone_height = rng.gen_range(0.0..*radius);
+                let cone_radius = cone_height * angle.tan();
+                let r = rng.gen_range(0.0..cone_radius);
 
-                // Local cone space
-                let local = Vec3::new(
-                    r * phi.sin() * theta.cos(),
-                    r * phi.sin() * theta.sin(),
-                    r * phi.cos(),
-                );
-
-                // Rotate to align with direction
-                // Simple rotation assuming direction is Y-up for now
-                local
+                Vec3::new(r * theta.cos(), cone_height, r * theta.sin())
             }
-            EmitterShape::Box { size } => Vec3::new(
-                rng.gen_range(-size.x / 2.0..size.x / 2.0),
-                rng.gen_range(-size.y / 2.0..size.y / 2.0),
-                rng.gen_range(-size.z / 2.0..size.z / 2.0),
-            ),
-        };
 
-        let position = self.position + offset;
+            EmitterShape::Box { size } => {
+                // Uniform sampling in box
+                Vec3::new(
+                    rng.gen_range(-size.x / 2.0..size.x / 2.0),
+                    rng.gen_range(-size.y / 2.0..size.y / 2.0),
+                    rng.gen_range(-size.z / 2.0..size.z / 2.0),
+                )
+            }
 
-        // Random velocity based on shape
-        let velocity_direction = match self.shape {
-            EmitterShape::Point => {
-                // Random direction
+            EmitterShape::Circle { radius } => {
+                // Uniform sampling in circle
                 let theta = rng.gen_range(0.0..std::f32::consts::TAU);
-                let phi = rng.gen_range(0.0..std::f32::consts::PI);
-                Vec3::new(phi.sin() * theta.cos(), phi.sin() * theta.sin(), phi.cos())
+                let r = rng.gen_range(0.0..*radius);
+
+                Vec3::new(r * theta.cos(), 0.0, r * theta.sin())
             }
-            EmitterShape::Sphere { .. } => {
-                // Outward from center
-                offset.normalize_or_zero()
-            }
-            EmitterShape::Cone { .. } => {
-                // Along cone direction with some randomness
-                self.direction
-            }
-            EmitterShape::Box { .. } => {
-                // Upward
-                Vec3::Y
-            }
-        };
-
-        let speed = rng.gen_range(self.settings.speed_range.0..self.settings.speed_range.1);
-        let velocity = velocity_direction * speed;
-
-        // Random lifetime and size
-        let lifetime = rng.gen_range(self.settings.lifetime_range.0..self.settings.lifetime_range.1);
-        let size = rng.gen_range(self.settings.size_range.0..self.settings.size_range.1);
-
-        // Initial color
-        let color = if !self.settings.color_gradient.is_empty() {
-            self.settings.color_gradient[0]
-        } else {
-            Vec4::ONE
-        };
-
-        Particle::new(position, velocity, color, size, lifetime)
-    }
-
-    /// Burst spawn particles
-    pub fn burst(&mut self, count: usize) -> Vec<Particle> {
-        (0..count).map(|_| self.spawn_particle()).collect()
+        }
     }
 }
 
-impl Default for EmitterShape {
+/// Emitter properties defining particle behavior
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmitterProperties {
+    /// Shape of emission
+    pub shape: EmitterShape,
+
+    /// Particles emitted per second
+    pub rate: f32,
+
+    /// Initial velocity direction
+    pub initial_velocity: Vec3,
+
+    /// Randomness in velocity (0.0 = no randomness, 1.0 = full random)
+    pub velocity_randomness: f32,
+
+    /// Particle lifetime in seconds
+    pub lifetime: f32,
+
+    /// Randomness in lifetime
+    pub lifetime_randomness: f32,
+
+    /// Initial particle size
+    pub initial_size: f32,
+
+    /// Size multipliers over lifetime [0.0, 0.25, 0.5, 0.75, 1.0]
+    pub size_over_lifetime: Vec<f32>,
+
+    /// Initial color (RGBA)
+    pub initial_color: [f32; 4],
+
+    /// Color gradient over lifetime
+    pub color_over_lifetime: Vec<[f32; 4]>,
+
+    /// Gravity applied to particles
+    pub gravity: Vec3,
+}
+
+impl Default for EmitterProperties {
     fn default() -> Self {
-        EmitterShape::Point
+        Self {
+            shape: EmitterShape::Point,
+            rate: 10.0,
+            initial_velocity: Vec3::Y,
+            velocity_randomness: 0.1,
+            lifetime: 1.0,
+            lifetime_randomness: 0.0,
+            initial_size: 1.0,
+            size_over_lifetime: vec![1.0, 0.8, 0.5, 0.2, 0.0],
+            initial_color: [1.0, 1.0, 1.0, 1.0],
+            color_over_lifetime: vec![
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 0.5],
+                [1.0, 1.0, 1.0, 0.0],
+            ],
+            gravity: Vec3::new(0.0, -9.81, 0.0),
+        }
+    }
+}
+
+impl EmitterProperties {
+    /// Get initial velocity with randomness applied
+    pub fn sample_velocity(&self) -> Vec3 {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        let base = self.initial_velocity;
+        let randomness = self.velocity_randomness;
+
+        if randomness == 0.0 {
+            return base;
+        }
+
+        let random_vec = Vec3::new(
+            rng.gen_range(-1.0..1.0),
+            rng.gen_range(-1.0..1.0),
+            rng.gen_range(-1.0..1.0),
+        ) * randomness;
+
+        base + random_vec
+    }
+
+    /// Sample lifetime with randomness
+    pub fn sample_lifetime(&self) -> f32 {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        let base = self.lifetime;
+        let randomness = self.lifetime_randomness;
+
+        base + rng.gen_range(-randomness..randomness)
+    }
+
+    /// Evaluate size at given life ratio (0.0 to 1.0)
+    pub fn evaluate_size(&self, life_ratio: f32) -> f32 {
+        if self.size_over_lifetime.is_empty() {
+            return self.initial_size;
+        }
+
+        let index = (life_ratio * (self.size_over_lifetime.len() - 1) as f32) as usize;
+        let next_index = (index + 1).min(self.size_over_lifetime.len() - 1);
+
+        let t = (life_ratio * (self.size_over_lifetime.len() - 1) as f32) - index as f32;
+        let current = self.size_over_lifetime[index];
+        let next = self.size_over_lifetime[next_index];
+
+        (current + (next - current) * t) * self.initial_size
+    }
+
+    /// Evaluate color at given life ratio (0.0 to 1.0)
+    pub fn evaluate_color(&self, life_ratio: f32) -> [f32; 4] {
+        if self.color_over_lifetime.is_empty() {
+            return self.initial_color;
+        }
+
+        let index = (life_ratio * (self.color_over_lifetime.len() - 1) as f32) as usize;
+        let next_index = (index + 1).min(self.color_over_lifetime.len() - 1);
+
+        let t = (life_ratio * (self.color_over_lifetime.len() - 1) as f32) - index as f32;
+        let current = self.color_over_lifetime[index];
+        let next = self.color_over_lifetime[next_index];
+
+        [
+            current[0] + (next[0] - current[0]) * t,
+            current[1] + (next[1] - current[1]) * t,
+            current[2] + (next[2] - current[2]) * t,
+            current[3] + (next[3] - current[3]) * t,
+        ]
     }
 }

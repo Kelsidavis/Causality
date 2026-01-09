@@ -151,3 +151,56 @@ impl Default for AudioListener {
 }
 
 impl_component!(AudioListener);
+
+/// Particle emitter component - emits particles with configurable properties
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParticleEmitter {
+    pub enabled: bool,
+    pub max_particles: u32,
+    pub shape: String,              // Serialized EmitterShape
+    pub rate: f32,
+    pub initial_velocity: [f32; 3],
+    pub velocity_randomness: f32,
+    pub lifetime: f32,
+    pub lifetime_randomness: f32,
+    pub initial_size: f32,
+    pub initial_color: [f32; 4],
+    pub gravity: [f32; 3],
+    pub texture_path: Option<String>,
+    pub blend_mode: BlendMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BlendMode {
+    Alpha,      // Standard alpha blending
+    Additive,   // Additive (fire, sparks)
+    Multiply,   // Multiplicative (smoke)
+}
+
+impl ParticleEmitter {
+    pub fn new() -> Self {
+        Self {
+            enabled: true,
+            max_particles: 1000,
+            shape: "Point".to_string(),
+            rate: 10.0,
+            initial_velocity: [0.0, 1.0, 0.0],
+            velocity_randomness: 0.1,
+            lifetime: 1.0,
+            lifetime_randomness: 0.0,
+            initial_size: 1.0,
+            initial_color: [1.0, 1.0, 1.0, 1.0],
+            gravity: [0.0, -9.81, 0.0],
+            texture_path: None,
+            blend_mode: BlendMode::Alpha,
+        }
+    }
+}
+
+impl Default for ParticleEmitter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl_component!(ParticleEmitter);

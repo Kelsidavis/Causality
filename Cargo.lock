@@ -1253,8 +1253,12 @@ name = "engine-particles"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "glam",
+ "log",
  "rand 0.8.5",
+ "serde",
+ "wgpu",
 ]
 
 [[package]]
