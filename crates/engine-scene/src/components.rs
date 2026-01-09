@@ -249,3 +249,64 @@ impl Default for Water {
 }
 
 impl_component!(Water);
+
+/// A computed water body from terrain flood-fill (runtime only, not serialized)
+#[derive(Debug, Clone)]
+pub struct WaterBody {
+    pub id: u32,
+    pub surface_level: f32,
+    pub bounds_min: [f32; 3],
+    pub bounds_max: [f32; 3],
+    pub mesh_name: String,
+    pub connected_to: Vec<u32>,
+    pub flow_direction: Option<[f32; 2]>,
+    pub flow_speed: f32,
+}
+
+/// Terrain-aware water that fills depressions via flood-fill
+/// Water is computed at scene load based on terrain heightmap
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerrainWater {
+    /// Reference to terrain entity name (must have terrain heightmap)
+    pub terrain_reference: String,
+    /// Global ground water level - water fills below this height
+    pub ground_water_level: f32,
+    /// Minimum water depth to create a water body (filters tiny puddles)
+    pub min_water_depth: f32,
+    /// Minimum area in grid cells to create a water body
+    pub min_water_area: usize,
+    /// Water rendering properties
+    pub wave_speed: f32,
+    pub wave_amplitude: f32,
+    pub color: [f32; 3],
+    pub transparency: f32,
+    pub texture_path: Option<String>,
+    /// Computed water bodies (populated at load time, not serialized)
+    #[serde(skip)]
+    pub water_bodies: Vec<WaterBody>,
+}
+
+impl TerrainWater {
+    pub fn new(terrain_reference: String, ground_water_level: f32) -> Self {
+        Self {
+            terrain_reference,
+            ground_water_level,
+            min_water_depth: 0.1,
+            min_water_area: 4,
+            wave_speed: 0.5,
+            wave_amplitude: 0.05,
+            color: [0.2, 0.5, 0.8],
+            transparency: 0.6,
+            texture_path: Some("water".to_string()),
+            water_bodies: Vec::new(),
+        }
+    }
+}
+
+impl Default for TerrainWater {
+    fn default() -> Self {
+        Self::new("Terrain".to_string(), 2.0)
+    }
+}
+
+impl_component!(TerrainWater);

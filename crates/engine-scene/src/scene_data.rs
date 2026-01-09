@@ -16,6 +16,7 @@ pub enum SerializedComponent {
     Light(Light),
     ParticleEmitter(ParticleEmitter),
     Water(Water),
+    TerrainWater(TerrainWater),
     // Generic component data for extensibility (e.g., physics components)
     Generic {
         component_type: String,

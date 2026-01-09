@@ -6,7 +6,7 @@ mod file_ipc;
 
 use anyhow::Result;
 use clap::Parser;
-use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent};
+use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent, HeightMap, TerrainConfig, compute_water_fill, generate_water_mesh};
 use wgpu::util::DeviceExt;
 use engine_audio::AudioSystem;
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody, BuoyancySystem, WaterVolume};
@@ -24,7 +24,7 @@ use engine_render::{
     water::WaterRenderer,
 };
 use engine_scene::{
-    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water},
+    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water, TerrainWater, WaterBody},
     entity::EntityId,
     scene::Scene,
     transform::Transform,
@@ -99,6 +99,19 @@ struct WgpuState {
     particle_renderer: Option<ParticleRenderer>,
     particle_systems: std::collections::HashMap<EntityId, engine_particles::ParticleSystem>,
     particle_compute_pipelines: std::collections::HashMap<EntityId, engine_particles::ParticleComputePipeline>,
+    /// Terrain heightmap for terrain-aware water
+    terrain_heightmap: Option<HeightMap>,
+    terrain_config: Option<TerrainConfig>,
+    /// Computed terrain water bodies for rendering
+    terrain_water_bodies: Vec<TerrainWaterBodyInfo>,
+}
+
+/// Info about a computed terrain water body for rendering
+struct TerrainWaterBodyInfo {
+    mesh_name: String,
+    surface_level: f32,
+    flow_direction: Option<[f32; 2]>,
+    flow_speed: f32,
 }
 
 // Uniforms and push constants now handled by renderer
@@ -252,6 +265,60 @@ impl EditorApp {
         // Scene is now loaded from file instead of being generated
         // No need to create entities programmatically
 
+        // Process TerrainWater components - compute water fill and generate meshes
+        let mut terrain_heightmap = None;
+        let mut terrain_config = None;
+        let mut terrain_water_bodies = Vec::new();
+        for entity in scene.entities() {
+            if let Some(terrain_water) = entity.get_component::<TerrainWater>() {
+                log::info!("Found TerrainWater component with ground_water_level={}", terrain_water.ground_water_level);
+
+                // Generate terrain heightmap if not already done
+                if terrain_heightmap.is_none() {
+                    let config = TerrainConfig {
+                        width: 64,
+                        depth: 64,
+                        scale: 50.0,
+                        height_scale: 5.0,
+                        seed: 42,
+                        ..Default::default()
+                    };
+                    terrain_heightmap = Some(HeightMap::generate(&config));
+                    terrain_config = Some(config);
+                    log::info!("Generated terrain heightmap {}x{}", 64, 64);
+                }
+
+                // Compute water fill
+                if let (Some(ref heightmap), Some(ref config)) = (&terrain_heightmap, &terrain_config) {
+                    let result = compute_water_fill(
+                        heightmap,
+                        terrain_water.ground_water_level,
+                        terrain_water.min_water_depth,
+                        terrain_water.min_water_area,
+                    );
+                    log::info!("Computed water fill: {} water bodies found", result.water_bodies.len());
+
+                    // Generate and upload meshes for each water body
+                    for computed_body in &result.water_bodies {
+                        let mesh = generate_water_mesh(computed_body, heightmap, config);
+                        log::info!("Generated water mesh '{}' with {} vertices, {} indices",
+                            mesh.name, mesh.vertices.len(), mesh.indices.len());
+
+                        let gpu_vertices = convert_mesh_to_gpu(&mesh);
+                        mesh_manager.upload_mesh(&renderer.device, mesh.name.clone(), &gpu_vertices, &mesh.indices);
+
+                        // Store water body info for rendering
+                        terrain_water_bodies.push(TerrainWaterBodyInfo {
+                            mesh_name: mesh.name,
+                            surface_level: computed_body.surface_level,
+                            flow_direction: computed_body.flow_direction,
+                            flow_speed: computed_body.flow_speed,
+                        });
+                    }
+                }
+            }
+        }
+
         // Initialize physics world
         let mut physics_world = PhysicsWorld::default(); // Default gravity is (0, -9.81, 0)
         PhysicsSync::initialize_physics(&mut physics_world, &scene)?;
@@ -402,6 +469,9 @@ impl EditorApp {
             particle_renderer,
             particle_systems: std::collections::HashMap::new(),
             particle_compute_pipelines: std::collections::HashMap::new(),
+            terrain_heightmap,
+            terrain_config,
+            terrain_water_bodies,
         });
         self.camera = Some(camera);
         self.scene = Some(scene);
@@ -1102,6 +1172,69 @@ impl EditorApp {
                                     shadow_bg,
                                 );
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Render terrain water bodies (from flood-fill computation)
+        if let Some(ref water_renderer) = wgpu_state.water_renderer {
+            for water_body in &wgpu_state.terrain_water_bodies {
+                // Get the mesh for this water body
+                if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&water_body.mesh_name) {
+                    if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
+                        // Update water uniforms with this body's flow
+                        let flow_dir = water_body.flow_direction.unwrap_or([0.0, 0.0]);
+                        water_renderer.update_uniforms(
+                            &wgpu_state.renderer.queue,
+                            view_proj,
+                            camera.position,
+                            self.time,
+                            flow_dir,
+                            water_body.flow_speed,
+                        );
+
+                        // Get water texture
+                        let texture_handle = wgpu_state.texture_manager.get_handle("water")
+                            .unwrap_or_else(|| wgpu_state.texture_manager.white_texture_handle());
+                        let texture_bind_group = &wgpu_state.texture_manager.get_texture(texture_handle)
+                            .expect("Texture should exist").bind_group;
+
+                        // Get shadow bind group
+                        if let Some(ref shadow_bg) = shadow_sampling_bind_group {
+                            // Create water render pass
+                            let mut water_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("Terrain Water Render Pass"),
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view: &view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Load,
+                                        store: wgpu::StoreOp::Store,
+                                    },
+                                    depth_slice: None,
+                                })],
+                                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                    view: &wgpu_state.depth_texture,
+                                    depth_ops: Some(wgpu::Operations {
+                                        load: wgpu::LoadOp::Load,
+                                        store: wgpu::StoreOp::Store,
+                                    }),
+                                    stencil_ops: None,
+                                }),
+                                timestamp_writes: None,
+                                occlusion_query_set: None,
+                            });
+
+                            // Terrain water is already in world space (identity transform)
+                            water_renderer.render(
+                                &mut water_pass,
+                                gpu_mesh,
+                                glam::Mat4::IDENTITY,
+                                texture_bind_group,
+                                shadow_bg,
+                            );
                         }
                     }
                 }

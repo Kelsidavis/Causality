@@ -1,0 +1,56 @@
+(
+    name: "Terrain Water Test Scene",
+    entities: {
+        // Terrain water - fills depressions below ground water level
+        (1): (
+            id: (1),
+            name: "TerrainWater",
+            transform: (
+                position: (0.0, 0.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "TerrainWater",
+                    terrain_reference: "Terrain",
+                    ground_water_level: 4.5,
+                    min_water_depth: 0.1,
+                    min_water_area: 4,
+                    wave_speed: 0.5,
+                    wave_amplitude: 0.05,
+                    color: [0.2, 0.5, 0.8],
+                    transparency: 0.6,
+                    texture_path: Some("water"),
+                ),
+            ],
+        ),
+
+        // Reference cube above water
+        (2): (
+            id: (2),
+            name: "Reference Cube",
+            transform: (
+                position: (5.0, 4.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/stone_bricks.mat"),
+                ),
+            ],
+        ),
+    },
+    next_id: 10,
+    root_entities: [
+        (1),
+        (2),
+    ],
+)
