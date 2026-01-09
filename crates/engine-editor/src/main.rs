@@ -773,9 +773,30 @@ impl EditorApp {
             // Directional light coming from above and to the side
             let light_direction = glam::Vec3::new(0.5, -1.0, 0.3).normalize();
 
-            // Calculate scene bounds (simplified - use all entities)
-            let scene_center = glam::Vec3::ZERO;
-            let scene_radius = 10.0; // Conservative estimate
+            // Calculate actual scene bounds from all entities
+            let mut min_bounds = glam::Vec3::splat(f32::MAX);
+            let mut max_bounds = glam::Vec3::splat(f32::MIN);
+            let mut has_entities = false;
+
+            for entity in scene.entities() {
+                let pos = entity.transform.position;
+                min_bounds = min_bounds.min(pos);
+                max_bounds = max_bounds.max(pos);
+                has_entities = true;
+            }
+
+            // Fallback if no entities
+            if !has_entities {
+                min_bounds = glam::Vec3::splat(-10.0);
+                max_bounds = glam::Vec3::splat(10.0);
+            }
+
+            // Expand bounds slightly for margin
+            min_bounds -= glam::Vec3::splat(2.0);
+            max_bounds += glam::Vec3::splat(2.0);
+
+            let scene_center = (min_bounds + max_bounds) * 0.5;
+            let scene_radius = (max_bounds - min_bounds).length() * 0.5;
 
             let light_space_matrix = ShadowMap::calculate_light_space_matrix(
                 light_direction,

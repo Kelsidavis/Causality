@@ -187,6 +187,7 @@ impl ShadowMap {
         let view = Mat4::look_at_rh(light_pos, scene_center, Vec3::Y);
 
         // Orthographic projection for directional light
+        // Use orthographic_rh for WebGPU which has [0, 1] depth range
         let projection = Mat4::orthographic_rh(
             -scene_radius,
             scene_radius,

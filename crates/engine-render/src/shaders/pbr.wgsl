@@ -84,7 +84,7 @@ fn calculate_shadow(shadow_pos: vec4<f32>) -> f32 {
     // Check if outside shadow map bounds
     if proj_coords.x < 0.0 || proj_coords.x > 1.0 ||
        proj_coords.y < 0.0 || proj_coords.y > 1.0 ||
-       proj_coords.z > 1.0 {
+       proj_coords.z < 0.0 || proj_coords.z > 1.0 {
         return 1.0; // Not in shadow
     }
 
@@ -110,12 +110,16 @@ fn calculate_shadow(shadow_pos: vec4<f32>) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Simple lighting calculation
-    let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.3));
+    // Light direction matches shadow map: coming from above and to the side
+    let light_dir = normalize(vec3<f32>(-0.5, 1.0, -0.3));
     let ambient = 0.3;
     let diffuse = max(dot(in.normal, light_dir), 0.0);
 
     // Calculate shadow
     let shadow = calculate_shadow(in.shadow_position);
+
+    // DEBUG: Visualize shadow value directly
+    // return vec4<f32>(shadow, shadow, shadow, 1.0);
 
     // Apply shadow to diffuse light (ambient not affected by shadow)
     let lighting = ambient + diffuse * 0.7 * shadow;
