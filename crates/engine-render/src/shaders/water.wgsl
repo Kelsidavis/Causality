@@ -53,10 +53,10 @@ struct VertexOutput {
     @location(5) view_direction: vec3<f32>,
 }
 
-// Wave parameters - multiple overlapping waves for natural look
-const WAVE_SPEED: f32 = 1.2;
-const WAVE_FREQUENCY: f32 = 0.5;
-const WAVE_AMPLITUDE: f32 = 0.25;
+// Wave parameters - very subtle for calm water
+const WAVE_SPEED: f32 = 0.1;
+const WAVE_FREQUENCY: f32 = 0.3;
+const WAVE_AMPLITUDE: f32 = 0.01;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -165,11 +165,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Apply shadow to diffuse light
     let lighting = ambient + diffuse * 0.8 * shadow;
 
-    // Sample texture with flow-based animated UVs
+    // Sample texture at multiple scales to hide tiling seams
     let flow_offset = uniforms.flow_direction * uniforms.flow_speed * uniforms.time * 0.1;
     let base_scroll = vec2<f32>(uniforms.time * 0.003, uniforms.time * 0.002);
-    let animated_uv = in.tex_coord + flow_offset + base_scroll;
-    let tex_color = textureSample(t_texture, t_sampler, animated_uv);
+
+    // Three texture samples at different scales and offsets
+    let uv1 = in.tex_coord * 0.5 + flow_offset + base_scroll;
+    let uv2 = in.tex_coord * 0.73 + flow_offset * 0.7 + base_scroll * 1.3 + vec2<f32>(0.37, 0.61);
+    let uv3 = in.tex_coord * 1.1 + flow_offset * 1.2 - base_scroll * 0.8 + vec2<f32>(0.13, 0.29);
+
+    let tex1 = textureSample(t_texture, t_sampler, uv1);
+    let tex2 = textureSample(t_texture, t_sampler, uv2);
+    let tex3 = textureSample(t_texture, t_sampler, uv3);
+
+    // Blend the samples to break up tiling pattern
+    let tex_color = tex1 * 0.4 + tex2 * 0.35 + tex3 * 0.25;
 
     // Base water color (turquoise)
     let water_color = tex_color.rgb * in.color;
