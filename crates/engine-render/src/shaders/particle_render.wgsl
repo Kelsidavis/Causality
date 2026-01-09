@@ -69,9 +69,10 @@ fn vs_main(
 
     // Skip dead particles (moved offscreen by compute shader)
     if (particle_position.y < -9000.0) {
-        output.clip_position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        // Move to far outside clip space
+        output.clip_position = vec4<f32>(0.0, 0.0, -100.0, 1.0);
         output.uv = vec2<f32>(0.0, 0.0);
-        output.color = vec4<f32>(0.0);
+        output.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
         return output;
     }
 

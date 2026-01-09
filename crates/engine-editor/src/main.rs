@@ -360,6 +360,7 @@ impl EditorApp {
         // Create particle renderer
         let particle_renderer = ParticleRenderer::new(
             &renderer.device,
+            &renderer.queue,
             renderer.surface_config.format,
             engine_render::particle_renderer::ParticleBlendMode::Alpha,
         ).ok();
@@ -646,6 +647,9 @@ impl EditorApp {
                 if !wgpu_state.particle_systems.contains_key(&entity_id) {
                     use engine_particles::{ParticleSystem, EmitterProperties, EmitterShape};
 
+                    log::info!("Initializing particle emitter for entity {} ({})", entity_id.0, entity.name);
+                    log::info!("  Rate: {}, Max particles: {}", particle_emitter.rate, particle_emitter.max_particles);
+
                     // Parse emitter shape
                     let shape = match particle_emitter.shape.as_str() {
                         "sphere" => EmitterShape::Sphere { radius: 1.0 },
@@ -673,22 +677,43 @@ impl EditorApp {
                     let mut system = ParticleSystem::new(particle_emitter.max_particles, properties);
                     system.position = position;
 
+                    // Spawn initial batch of particles for immediate visibility
+                    for _ in 0..50 {
+                        system.update(0.016); // Simulate ~3 frames worth of spawning
+                    }
+
+                    eprintln!("✨ Created particle system at position {:?} with {} initial particles",
+                              position, system.active_particle_count());
+                    log::info!("  Created particle system at position {:?} with {} initial particles",
+                              position, system.active_particle_count());
+
+                    let initial_particles = system.particles.clone();
                     wgpu_state.particle_systems.insert(entity_id, system);
 
-                    // Create compute pipeline for this particle system
+                    // Create compute pipeline with initial particles
+                    // After this, GPU takes over - no more uploads!
                     if let Ok(compute_pipeline) = engine_particles::ParticleComputePipeline::new(
                         &wgpu_state.renderer.device,
                         particle_emitter.max_particles,
-                        &[], // Initial particles (empty)
+                        &initial_particles,
                     ) {
                         wgpu_state.particle_compute_pipelines.insert(entity_id, compute_pipeline);
                     }
                 }
 
-                // Update particle system position from entity transform
+                // Update particle system and spawn new particles
                 if let Some(system) = wgpu_state.particle_systems.get_mut(&entity_id) {
                     system.position = entity.transform.position;
                     system.update(dt);
+
+                    // Upload particles to GPU (includes newly spawned ones)
+                    // GPU compute will update them immediately after
+                    if let Some(compute_pipeline) = wgpu_state.particle_compute_pipelines.get(&entity_id) {
+                        compute_pipeline.upload_particles(
+                            &wgpu_state.renderer.queue,
+                            &system.particles,
+                        );
+                    }
                 }
             }
         }
@@ -700,13 +725,10 @@ impl EditorApp {
         )?;
 
         // Update and dispatch particle compute shaders
-        for (entity_id, particle_system) in &wgpu_state.particle_systems {
+        for (entity_id, particle_system) in &mut wgpu_state.particle_systems {
             if let Some(compute_pipeline) = wgpu_state.particle_compute_pipelines.get(entity_id) {
-                // Upload current particle data to GPU
-                compute_pipeline.upload_particles(
-                    &wgpu_state.renderer.queue,
-                    &particle_system.particles,
-                );
+                // DON'T upload particles here - let GPU maintain state
+                // Only upload uniforms for simulation
 
                 // Update simulation uniforms
                 compute_pipeline.update_uniforms(
@@ -716,8 +738,11 @@ impl EditorApp {
                     particle_system.properties.gravity,
                 );
 
-                // Dispatch compute shader
+                // Dispatch compute shader (GPU handles aging, movement, and death)
                 compute_pipeline.dispatch(&mut encoder);
+
+                // Clean up dead particles in CPU-side array for tracking
+                particle_system.collect_dead_particles();
             }
         }
 
@@ -976,6 +1001,13 @@ impl EditorApp {
             for (entity_id, particle_system) in &wgpu_state.particle_systems {
                 if let Some(compute_pipeline) = wgpu_state.particle_compute_pipelines.get(entity_id) {
                     let particle_count = particle_system.particles.len() as u32;
+                    let alive_count = particle_system.particles.iter().filter(|p| p.is_alive()).count();
+
+                    if alive_count > 0 {
+                        log::info!("Rendering entity {}: {} alive particles (buffer size: {})",
+                                  entity_id.0, alive_count, particle_count);
+                    }
+
                     if particle_count > 0 {
                         let mut particle_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Particle Render Pass"),

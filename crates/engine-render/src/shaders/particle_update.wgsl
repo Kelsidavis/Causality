@@ -61,10 +61,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Update size over lifetime (simple linear shrink)
     // TODO: Use curves from emitter properties
-    particle.size = mix(1.0, 0.1, life_ratio);
+    // NOTE: Commenting out for now to preserve initial_size set on CPU
+    // particle.size = mix(1.0, 0.1, life_ratio);
 
     // Update alpha over lifetime (fade out)
-    particle.color.a = 1.0 - life_ratio;
+    // NOTE: Keep alpha at 1.0 for now to ensure visibility
+    // particle.color.a = 1.0 - life_ratio;
 
     // Update rotation (simple linear rotation)
     particle.rotation += uniforms.delta_time * 2.0;  // 2 radians per second

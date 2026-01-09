@@ -54,6 +54,7 @@ impl ParticleRenderer {
     /// Create a new particle renderer
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         surface_format: wgpu::TextureFormat,
         blend_mode: ParticleBlendMode,
     ) -> Result<Self> {
@@ -124,26 +125,27 @@ impl ParticleRenderer {
                 ],
             });
 
-        // Create default white texture
-        let default_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Default Particle Texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        // Upload white pixel
+        // Create default white texture (1x1 white pixel)
         let white_pixel = [255u8, 255, 255, 255];
-        let queue = device; // Note: Would need actual queue reference
-        // queue.write_texture(...); // TODO: Needs queue parameter
+        let default_texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Default Particle Texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &white_pixel,
+        );
 
         let default_texture_view = default_texture.create_view(&wgpu::TextureViewDescriptor::default());
 

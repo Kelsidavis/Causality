@@ -66,6 +66,13 @@ impl ParticleSystem {
         for _ in 0..particles_to_spawn {
             self.spawn_particle();
         }
+
+        // Debug logging
+        if particles_to_spawn > 0 {
+            let alive = self.particles.iter().filter(|p| p.is_alive()).count();
+            log::info!("Spawned {} particles, {} alive total, {} free slots",
+                      particles_to_spawn, alive, self.free_indices.len());
+        }
     }
 
     /// Spawn a single particle
@@ -94,6 +101,9 @@ impl ParticleSystem {
             self.properties.initial_size,
             lifetime,
         );
+
+        log::debug!("Spawned particle at {:?}, size: {}, color: {:?}, velocity: {:?}",
+                   world_pos, self.properties.initial_size, self.properties.initial_color, velocity);
 
         self.particles[index] = particle;
     }
