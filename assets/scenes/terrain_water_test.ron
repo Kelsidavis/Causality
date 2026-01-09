@@ -1,6 +1,26 @@
 (
     name: "Terrain Water Test Scene",
     entities: {
+        // Terrain mesh - visible ground with basins for water
+        (0): (
+            id: (0),
+            name: "Terrain",
+            transform: (
+                position: (0.0, 0.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "terrain",
+                    material_path: Some("materials/grass.mat"),
+                ),
+            ],
+        ),
+
         // Terrain water - fills depressions below ground water level
         (1): (
             id: (1),
@@ -16,11 +36,11 @@
                 (
                     type: "TerrainWater",
                     terrain_reference: "Terrain",
-                    ground_water_level: 4.5,
+                    ground_water_level: 3.5,
                     min_water_depth: 0.1,
                     min_water_area: 4,
                     wave_speed: 0.5,
-                    wave_amplitude: 0.05,
+                    wave_amplitude: 0.002,
                     color: [0.2, 0.5, 0.8],
                     transparency: 0.6,
                     texture_path: Some("water"),
@@ -33,7 +53,7 @@
             id: (2),
             name: "Reference Cube",
             transform: (
-                position: (5.0, 4.0, 0.0),
+                position: (5.0, 6.0, 0.0),
                 rotation: (0.0, 0.0, 0.0, 1.0),
                 scale: (1.0, 1.0, 1.0),
             ),
@@ -50,6 +70,7 @@
     },
     next_id: 10,
     root_entities: [
+        (0),
         (1),
         (2),
     ],

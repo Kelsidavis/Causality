@@ -4,6 +4,7 @@ use crate::mesh::{Mesh, Vertex};
 use glam::{Vec2, Vec3};
 use noise::{NoiseFn, Perlin, Seedable};
 
+#[derive(Clone)]
 pub struct TerrainConfig {
     pub width: usize,      // Number of vertices in X direction
     pub depth: usize,      // Number of vertices in Z direction
@@ -78,6 +79,76 @@ impl HeightMap {
         }
     }
 
+    /// Generate terrain with deliberate lake basins for water containment
+    /// Creates a terrain with raised edges and depressions in the interior
+    pub fn generate_with_basins(config: &TerrainConfig, num_basins: usize) -> Self {
+        let perlin = Perlin::new(config.seed);
+        let mut heights = Vec::with_capacity(config.width * config.depth);
+
+        // Define basin locations (in normalized 0-1 coords)
+        let basins: Vec<(f64, f64, f64, f64)> = (0..num_basins)
+            .map(|i| {
+                let seed_offset = i as f64 * 0.7;
+                let bx = 0.2 + 0.6 * ((perlin.get([seed_offset, 0.0]) + 1.0) * 0.5);
+                let bz = 0.2 + 0.6 * ((perlin.get([0.0, seed_offset]) + 1.0) * 0.5);
+                let radius = 0.1 + 0.15 * ((perlin.get([seed_offset, seed_offset]) + 1.0) * 0.5);
+                let depth = 0.3 + 0.4 * ((perlin.get([seed_offset * 2.0, 0.0]) + 1.0) * 0.5);
+                (bx, bz, radius, depth)
+            })
+            .collect();
+
+        for z in 0..config.depth {
+            for x in 0..config.width {
+                let nx = x as f64 / config.width as f64;
+                let nz = z as f64 / config.depth as f64;
+
+                // Base terrain from noise
+                let mut height = 0.0;
+                let mut amplitude = 1.0;
+                let mut frequency = config.frequency;
+
+                for _ in 0..config.octaves {
+                    let sample_x = nx * frequency;
+                    let sample_z = nz * frequency;
+                    let noise_value = perlin.get([sample_x, sample_z]);
+                    height += noise_value * amplitude;
+
+                    amplitude *= config.persistence;
+                    frequency *= config.lacunarity;
+                }
+
+                height = (height + 1.0) * 0.5;
+
+                // Raise edges to contain water (bowl shape)
+                let edge_x = (nx - 0.5).abs() * 2.0; // 0 at center, 1 at edge
+                let edge_z = (nz - 0.5).abs() * 2.0;
+                let edge_dist = (edge_x.max(edge_z)).powf(2.0);
+                height += edge_dist * 0.3; // Raise edges
+
+                // Carve basins (depressions)
+                for &(bx, bz, radius, basin_depth) in &basins {
+                    let dx = nx - bx;
+                    let dz = nz - bz;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist < radius {
+                        // Smooth basin profile (parabolic)
+                        let t = dist / radius;
+                        let depression = (1.0 - t * t) * basin_depth;
+                        height -= depression;
+                    }
+                }
+
+                heights.push(height as f32 * config.height_scale);
+            }
+        }
+
+        Self {
+            width: config.width,
+            depth: config.depth,
+            heights,
+        }
+    }
+
     /// Get height at grid position
     pub fn get_height(&self, x: usize, z: usize) -> f32 {
         if x >= self.width || z >= self.depth {
@@ -118,9 +189,8 @@ impl HeightMap {
 pub struct Terrain;
 
 impl Terrain {
-    /// Generate terrain mesh from height map
-    pub fn generate_mesh(config: &TerrainConfig) -> Mesh {
-        let height_map = HeightMap::generate(config);
+    /// Generate terrain mesh from an existing height map
+    pub fn generate_mesh_from_heightmap(height_map: &HeightMap, config: &TerrainConfig) -> Mesh {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
@@ -136,7 +206,7 @@ impl Terrain {
                 let height = height_map.get_height(x, z);
 
                 // Calculate normal using neighboring heights
-                let normal = Self::calculate_normal(&height_map, x, z, cell_size);
+                let normal = Self::calculate_normal(height_map, x, z, cell_size);
 
                 // UV coordinates
                 let u = x as f32 / (config.width - 1) as f32;
@@ -172,6 +242,12 @@ impl Terrain {
         }
 
         Mesh::new("Terrain".to_string(), vertices, indices)
+    }
+
+    /// Generate terrain mesh from height map (generates a new heightmap)
+    pub fn generate_mesh(config: &TerrainConfig) -> Mesh {
+        let height_map = HeightMap::generate(config);
+        Self::generate_mesh_from_heightmap(&height_map, config)
     }
 
     /// Calculate vertex normal using finite differences

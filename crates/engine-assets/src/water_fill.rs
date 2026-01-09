@@ -380,58 +380,180 @@ fn detect_overflow_connections(
     }
 }
 
-/// Generate a water mesh for a water body that conforms to terrain boundaries
+/// Generate a water mesh for a water body
+/// Creates surface quads and extends edges outward to meet terrain at water level
 pub fn generate_water_mesh(
     water_body: &ComputedWaterBody,
-    _heightmap: &HeightMap,
+    heightmap: &HeightMap,
     config: &TerrainConfig,
 ) -> Mesh {
     let cell_size = config.scale / config.width as f32;
     let offset_x = -config.scale * 0.5;
     let offset_z = -config.scale * 0.5;
+    let surface = water_body.surface_level;
 
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
-    let mut vertex_map: HashMap<(usize, usize), u32> = HashMap::new();
 
-    // Create a set of water cells for quick lookup
+    // Create a set of water cells for edge detection
     let water_cells: HashSet<(usize, usize)> = water_body.cells.iter().cloned().collect();
 
-    // Create vertices for each water cell
-    for &(gx, gz) in &water_body.cells {
-        let world_x = offset_x + gx as f32 * cell_size;
-        let world_z = offset_z + gz as f32 * cell_size;
+    // Cache for vertex positions to avoid duplicates
+    let mut vertex_cache: HashMap<(i32, i32), u32> = HashMap::new();
 
-        let vertex_idx = vertices.len() as u32;
-        vertex_map.insert((gx, gz), vertex_idx);
+    // Helper to add a vertex at world position
+    // height_offset allows edge vertices to sink toward terrain
+    // foam adds white color for edge foam effect
+    let mut add_vertex_full = |cache: &mut HashMap<(i32, i32), u32>,
+                                verts: &mut Vec<Vertex>,
+                                world_x: f32, world_z: f32,
+                                height: f32, foam: bool| -> u32 {
+        // Include height and foam in cache key
+        let key = (
+            (world_x * 100.0).round() as i32,
+            (world_z * 100.0).round() as i32 + (height * 1000.0) as i32 + if foam { 500000 } else { 0 },
+        );
 
-        // UV based on world position for seamless tiling
-        let u = (world_x / config.scale + 0.5) * 4.0; // Tile 4x
+        if let Some(&idx) = cache.get(&key) {
+            return idx;
+        }
+
+        let u = (world_x / config.scale + 0.5) * 4.0;
         let v = (world_z / config.scale + 0.5) * 4.0;
 
-        vertices.push(
-            Vertex::new(Vec3::new(world_x, water_body.surface_level, world_z))
+        // Foam vertices are white but faded, normal water is full color
+        let color = if foam {
+            Vec3::new(0.5, 0.5, 0.5) // Faded white foam (more transparent)
+        } else {
+            Vec3::ONE // Normal water color
+        };
+
+        let idx = verts.len() as u32;
+        verts.push(
+            Vertex::new(Vec3::new(world_x, height, world_z))
                 .with_normal(Vec3::Y)
                 .with_tex_coord(Vec2::new(u, v))
-                .with_color(Vec3::ONE),
+                .with_color(color),
         );
-    }
+        cache.insert(key, idx);
+        idx
+    };
 
-    // Create triangles for adjacent cells
+    // Shorthand for surface-level vertices (no foam)
+    let mut add_vertex = |cache: &mut HashMap<(i32, i32), u32>,
+                          verts: &mut Vec<Vertex>,
+                          world_x: f32, world_z: f32| -> u32 {
+        add_vertex_full(cache, verts, world_x, world_z, surface, false)
+    };
+
+    // Shorthand for edge vertices with foam
+    let mut add_vertex_with_height = |cache: &mut HashMap<(i32, i32), u32>,
+                                       verts: &mut Vec<Vertex>,
+                                       world_x: f32, world_z: f32,
+                                       height: f32| -> u32 {
+        add_vertex_full(cache, verts, world_x, world_z, height, true) // Edge = foam
+    };
+
+    // Interpolate to find where terrain crosses water level
+    let interp_crossing = |h1: f32, h2: f32, p1: f32, p2: f32| -> f32 {
+        if (h2 - h1).abs() < 0.001 {
+            p2 // No slope, use outer point
+        } else {
+            let t = ((surface - h1) / (h2 - h1)).clamp(0.0, 1.0);
+            p1 + t * (p2 - p1)
+        }
+    };
+
+    // Process each water cell
     for &(gx, gz) in &water_body.cells {
-        // Check if we can form quads with neighbors
-        let has_right = water_cells.contains(&(gx + 1, gz));
-        let has_bottom = water_cells.contains(&(gx, gz + 1));
-        let has_diag = water_cells.contains(&(gx + 1, gz + 1));
+        // World positions of cell corners
+        let x0 = offset_x + gx as f32 * cell_size;
+        let x1 = offset_x + (gx + 1) as f32 * cell_size;
+        let z0 = offset_z + gz as f32 * cell_size;
+        let z1 = offset_z + (gz + 1) as f32 * cell_size;
 
-        if has_right && has_bottom && has_diag {
-            let v00 = vertex_map[&(gx, gz)];
-            let v10 = vertex_map[&(gx + 1, gz)];
-            let v01 = vertex_map[&(gx, gz + 1)];
-            let v11 = vertex_map[&(gx + 1, gz + 1)];
+        // Create the main cell quad
+        let v00 = add_vertex(&mut vertex_cache, &mut vertices, x0, z0);
+        let v10 = add_vertex(&mut vertex_cache, &mut vertices, x1, z0);
+        let v01 = add_vertex(&mut vertex_cache, &mut vertices, x0, z1);
+        let v11 = add_vertex(&mut vertex_cache, &mut vertices, x1, z1);
+        indices.extend_from_slice(&[v00, v01, v10, v10, v01, v11]);
 
-            // Two triangles per quad (counter-clockwise winding)
-            indices.extend_from_slice(&[v00, v10, v01, v10, v11, v01]);
+        // For edge cells, extend outward with gradual slope down to terrain
+
+        // Top edge (extend in -Z direction)
+        if gz == 0 || !water_cells.contains(&(gx, gz - 1)) {
+            let h00 = heightmap.get_height(gx, gz);
+            let h10 = heightmap.get_height(gx + 1, gz);
+            // Sample terrain one cell outward
+            let h00_out = if gz > 0 { heightmap.get_height(gx, gz - 1) } else { surface };
+            let h10_out = if gz > 0 { heightmap.get_height(gx + 1, gz - 1) } else { surface };
+
+            // Find where terrain crosses water level
+            let z_cross_0 = interp_crossing(h00, h00_out, z0, z0 - cell_size);
+            let z_cross_1 = interp_crossing(h10, h10_out, z0, z0 - cell_size);
+
+            // Edge vertices sink down to terrain level for gradual transition
+            let edge_h0 = h00.max(h00_out).min(surface);
+            let edge_h1 = h10.max(h10_out).min(surface);
+
+            let ve0 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x0, z_cross_0, edge_h0);
+            let ve1 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x1, z_cross_1, edge_h1);
+            indices.extend_from_slice(&[v00, ve0, v10, v10, ve0, ve1]);
+        }
+
+        // Bottom edge (extend in +Z direction)
+        if gz + 1 >= heightmap.depth || !water_cells.contains(&(gx, gz + 1)) {
+            let h01 = heightmap.get_height(gx, gz + 1);
+            let h11 = heightmap.get_height(gx + 1, gz + 1);
+            let h01_out = if gz + 2 < heightmap.depth { heightmap.get_height(gx, gz + 2) } else { surface };
+            let h11_out = if gz + 2 < heightmap.depth { heightmap.get_height(gx + 1, gz + 2) } else { surface };
+
+            let z_cross_0 = interp_crossing(h01, h01_out, z1, z1 + cell_size);
+            let z_cross_1 = interp_crossing(h11, h11_out, z1, z1 + cell_size);
+
+            let edge_h0 = h01.max(h01_out).min(surface);
+            let edge_h1 = h11.max(h11_out).min(surface);
+
+            let ve0 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x0, z_cross_0, edge_h0);
+            let ve1 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x1, z_cross_1, edge_h1);
+            indices.extend_from_slice(&[v01, v11, ve0, ve0, v11, ve1]);
+        }
+
+        // Left edge (extend in -X direction)
+        if gx == 0 || !water_cells.contains(&(gx - 1, gz)) {
+            let h00 = heightmap.get_height(gx, gz);
+            let h01 = heightmap.get_height(gx, gz + 1);
+            let h00_out = if gx > 0 { heightmap.get_height(gx - 1, gz) } else { surface };
+            let h01_out = if gx > 0 { heightmap.get_height(gx - 1, gz + 1) } else { surface };
+
+            let x_cross_0 = interp_crossing(h00, h00_out, x0, x0 - cell_size);
+            let x_cross_1 = interp_crossing(h01, h01_out, x0, x0 - cell_size);
+
+            let edge_h0 = h00.max(h00_out).min(surface);
+            let edge_h1 = h01.max(h01_out).min(surface);
+
+            let ve0 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x_cross_0, z0, edge_h0);
+            let ve1 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x_cross_1, z1, edge_h1);
+            indices.extend_from_slice(&[ve0, v00, ve1, ve1, v00, v01]);
+        }
+
+        // Right edge (extend in +X direction)
+        if gx + 1 >= heightmap.width || !water_cells.contains(&(gx + 1, gz)) {
+            let h10 = heightmap.get_height(gx + 1, gz);
+            let h11 = heightmap.get_height(gx + 1, gz + 1);
+            let h10_out = if gx + 2 < heightmap.width { heightmap.get_height(gx + 2, gz) } else { surface };
+            let h11_out = if gx + 2 < heightmap.width { heightmap.get_height(gx + 2, gz + 1) } else { surface };
+
+            let x_cross_0 = interp_crossing(h10, h10_out, x1, x1 + cell_size);
+            let x_cross_1 = interp_crossing(h11, h11_out, x1, x1 + cell_size);
+
+            let edge_h0 = h10.max(h10_out).min(surface);
+            let edge_h1 = h11.max(h11_out).min(surface);
+
+            let ve0 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x_cross_0, z0, edge_h0);
+            let ve1 = add_vertex_with_height(&mut vertex_cache, &mut vertices, x_cross_1, z1, edge_h1);
+            indices.extend_from_slice(&[v10, ve0, v11, v11, ve0, ve1]);
         }
     }
 

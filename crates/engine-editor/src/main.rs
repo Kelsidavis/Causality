@@ -6,7 +6,7 @@ mod file_ipc;
 
 use anyhow::Result;
 use clap::Parser;
-use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent, HeightMap, TerrainConfig, compute_water_fill, generate_water_mesh};
+use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent, HeightMap, TerrainConfig, Terrain, compute_water_fill, generate_water_mesh};
 use wgpu::util::DeviceExt;
 use engine_audio::AudioSystem;
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody, BuoyancySystem, WaterVolume};
@@ -273,7 +273,7 @@ impl EditorApp {
             if let Some(terrain_water) = entity.get_component::<TerrainWater>() {
                 log::info!("Found TerrainWater component with ground_water_level={}", terrain_water.ground_water_level);
 
-                // Generate terrain heightmap if not already done
+                // Generate terrain heightmap with basins for water containment
                 if terrain_heightmap.is_none() {
                     let config = TerrainConfig {
                         width: 64,
@@ -283,9 +283,19 @@ impl EditorApp {
                         seed: 42,
                         ..Default::default()
                     };
-                    terrain_heightmap = Some(HeightMap::generate(&config));
-                    terrain_config = Some(config);
-                    log::info!("Generated terrain heightmap {}x{}", 64, 64);
+                    // Use generate_with_basins to create terrain with depressions that can hold water
+                    terrain_heightmap = Some(HeightMap::generate_with_basins(&config, 3));
+                    terrain_config = Some(config.clone());
+                    log::info!("Generated terrain heightmap {}x{} with basins", 64, 64);
+
+                    // Generate and upload terrain mesh for rendering
+                    let terrain_mesh = Terrain::generate_mesh_from_heightmap(
+                        &terrain_heightmap.as_ref().unwrap(),
+                        &config,
+                    );
+                    log::info!("Generated terrain mesh '{}' with {} vertices", terrain_mesh.name, terrain_mesh.vertices.len());
+                    let gpu_vertices = convert_mesh_to_gpu(&terrain_mesh);
+                    mesh_manager.upload_mesh(&renderer.device, "terrain".to_string(), &gpu_vertices, &terrain_mesh.indices);
                 }
 
                 // Compute water fill
