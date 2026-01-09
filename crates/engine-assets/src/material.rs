@@ -2,6 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+fn default_alpha_cutoff() -> f32 {
+    0.5
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Material {
     pub name: String,
@@ -31,7 +35,11 @@ pub struct Material {
 
     // Transparency and rendering
     pub alpha_mode: AlphaMode,
+
+    #[serde(default = "default_alpha_cutoff")]
     pub alpha_cutoff: f32,          // Used for AlphaMode::Mask
+
+    #[serde(default)]
     pub double_sided: bool,
 }
 

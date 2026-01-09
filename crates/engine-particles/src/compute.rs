@@ -45,10 +45,28 @@ impl ParticleComputePipeline {
         particle_count: u32,
         initial_particles: &[GpuParticle],
     ) -> Result<Self> {
-        // Create particle storage buffer
+        // Create particle storage buffer with space for particle_count
+        // If initial_particles is empty, create dead particles to fill the buffer
+        let particles_to_upload: Vec<GpuParticle> = if initial_particles.is_empty() {
+            // Create dead particles (position.y = -9999.0)
+            vec![GpuParticle {
+                position: [0.0, -9999.0, 0.0],
+                _padding1: 0.0,
+                velocity: [0.0, 0.0, 0.0],
+                _padding2: 0.0,
+                color: [0.0, 0.0, 0.0, 0.0],
+                size: 0.0,
+                lifetime: 0.0,
+                max_lifetime: 0.0,
+                rotation: 0.0,
+            }; particle_count as usize]
+        } else {
+            initial_particles.to_vec()
+        };
+
         let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Particle Storage Buffer"),
-            contents: bytemuck::cast_slice(initial_particles),
+            contents: bytemuck::cast_slice(&particles_to_upload),
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC

@@ -1,0 +1,145 @@
+(
+    name: "Particle System Test Scene",
+    entities: {
+        // Ground plane
+        (1): (
+            id: (1),
+            name: "Ground",
+            transform: (
+                position: (0.0, -1.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (20.0, 0.1, 20.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "grass_cube",
+                    material_path: Some("materials/grass.mat"),
+                ),
+            ],
+        ),
+
+        // Particle emitter - Fire/Smoke effect
+        (100): (
+            id: (100),
+            name: "Fire Particle Emitter",
+            transform: (
+                position: (0.0, 0.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "ParticleEmitter",
+                    enabled: true,
+                    max_particles: 1000,
+                    shape: "point",
+                    rate: 50.0,
+                    initial_velocity: [0.0, 2.0, 0.0],
+                    velocity_randomness: 0.5,
+                    lifetime: 2.0,
+                    lifetime_randomness: 0.5,
+                    initial_size: 0.3,
+                    initial_color: [1.0, 0.6, 0.2, 1.0],
+                    gravity: [0.0, -1.0, 0.0],
+                    texture_path: None,
+                    blend_mode: "Additive",
+                ),
+            ],
+        ),
+
+        // Particle emitter - Fountain effect
+        (101): (
+            id: (101),
+            name: "Fountain Particle Emitter",
+            transform: (
+                position: (-5.0, 0.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "ParticleEmitter",
+                    enabled: true,
+                    max_particles: 2000,
+                    shape: "sphere",
+                    rate: 100.0,
+                    initial_velocity: [0.0, 5.0, 0.0],
+                    velocity_randomness: 1.0,
+                    lifetime: 3.0,
+                    lifetime_randomness: 0.3,
+                    initial_size: 0.2,
+                    initial_color: [0.3, 0.6, 1.0, 1.0],
+                    gravity: [0.0, -9.8, 0.0],
+                    texture_path: None,
+                    blend_mode: "Alpha",
+                ),
+            ],
+        ),
+
+        // Particle emitter - Sparkles
+        (102): (
+            id: (102),
+            name: "Sparkle Particle Emitter",
+            transform: (
+                position: (5.0, 2.0, 0.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "ParticleEmitter",
+                    enabled: true,
+                    max_particles: 500,
+                    shape: "circle",
+                    rate: 30.0,
+                    initial_velocity: [0.0, 0.5, 0.0],
+                    velocity_randomness: 0.8,
+                    lifetime: 1.5,
+                    lifetime_randomness: 0.5,
+                    initial_size: 0.15,
+                    initial_color: [1.0, 1.0, 0.3, 1.0],
+                    gravity: [0.0, -0.5, 0.0],
+                    texture_path: None,
+                    blend_mode: "Additive",
+                ),
+            ],
+        ),
+
+        // Reference cube to show scale
+        (200): (
+            id: (200),
+            name: "Reference Cube",
+            transform: (
+                position: (0.0, 1.0, -5.0),
+                rotation: (0.0, 0.0, 0.0, 1.0),
+                scale: (1.0, 1.0, 1.0),
+            ),
+            parent: None,
+            children: [],
+            components: [
+                (
+                    type: "MeshRenderer",
+                    mesh_path: "stone_cube",
+                    material_path: Some("materials/stone_bricks.mat"),
+                ),
+            ],
+        ),
+    },
+    next_id: 300,
+    root_entities: [
+        (1),
+        (100),
+        (101),
+        (102),
+        (200),
+    ],
+)

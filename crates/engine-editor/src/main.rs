@@ -15,6 +15,7 @@ use engine_render::{
     gpu_mesh::GpuVertex,
     material_manager::MaterialManager,
     mesh_manager::MeshManager,
+    particle_renderer::ParticleRenderer,
     postprocess::{Framebuffer, PostProcessPipeline},
     renderer::Renderer,
     shadow::ShadowMap,
@@ -22,7 +23,7 @@ use engine_render::{
     texture_manager::TextureManager,
 };
 use engine_scene::{
-    components::{AudioListener, AudioSource, MeshRenderer},
+    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter},
     entity::EntityId,
     scene::Scene,
     transform::Transform,
@@ -92,6 +93,9 @@ struct WgpuState {
     camera_uniform_buffer: wgpu::Buffer,
     framebuffer: Option<Framebuffer>,
     post_process_pipeline: Option<PostProcessPipeline>,
+    particle_renderer: Option<ParticleRenderer>,
+    particle_systems: std::collections::HashMap<EntityId, engine_particles::ParticleSystem>,
+    particle_compute_pipelines: std::collections::HashMap<EntityId, engine_particles::ParticleComputePipeline>,
 }
 
 // Uniforms and push constants now handled by renderer
@@ -353,6 +357,13 @@ impl EditorApp {
             renderer.surface_config.format,
         ).ok();
 
+        // Create particle renderer
+        let particle_renderer = ParticleRenderer::new(
+            &renderer.device,
+            renderer.surface_config.format,
+            engine_render::particle_renderer::ParticleBlendMode::Alpha,
+        ).ok();
+
         self.window = Some(window.clone());
         self.wgpu_state = Some(WgpuState {
             instance,
@@ -369,6 +380,9 @@ impl EditorApp {
             camera_uniform_buffer,
             framebuffer,
             post_process_pipeline,
+            particle_renderer,
+            particle_systems: std::collections::HashMap::new(),
+            particle_compute_pipelines: std::collections::HashMap::new(),
         });
         self.camera = Some(camera);
         self.scene = Some(scene);
@@ -619,11 +633,93 @@ impl EditorApp {
             }
         }
 
+        // Initialize and update particle systems
+        for entity in scene.entities() {
+            if let Some(particle_emitter) = entity.get_component::<ParticleEmitter>() {
+                if !particle_emitter.enabled {
+                    continue;
+                }
+
+                let entity_id = entity.id;
+
+                // Initialize particle system if it doesn't exist
+                if !wgpu_state.particle_systems.contains_key(&entity_id) {
+                    use engine_particles::{ParticleSystem, EmitterProperties, EmitterShape};
+
+                    // Parse emitter shape
+                    let shape = match particle_emitter.shape.as_str() {
+                        "sphere" => EmitterShape::Sphere { radius: 1.0 },
+                        "cone" => EmitterShape::Cone { angle: 30.0, radius: 1.0 },
+                        "box" => EmitterShape::Box { size: Vec3::ONE },
+                        "circle" => EmitterShape::Circle { radius: 1.0 },
+                        _ => EmitterShape::Point,
+                    };
+
+                    let properties = EmitterProperties {
+                        shape,
+                        rate: particle_emitter.rate,
+                        initial_velocity: Vec3::from(particle_emitter.initial_velocity),
+                        velocity_randomness: particle_emitter.velocity_randomness,
+                        lifetime: particle_emitter.lifetime,
+                        lifetime_randomness: particle_emitter.lifetime_randomness,
+                        initial_size: particle_emitter.initial_size,
+                        size_over_lifetime: vec![1.0, 0.1], // Linear shrink
+                        initial_color: particle_emitter.initial_color,
+                        color_over_lifetime: vec![],
+                        gravity: Vec3::from(particle_emitter.gravity),
+                    };
+
+                    let position = entity.transform.position;
+                    let mut system = ParticleSystem::new(particle_emitter.max_particles, properties);
+                    system.position = position;
+
+                    wgpu_state.particle_systems.insert(entity_id, system);
+
+                    // Create compute pipeline for this particle system
+                    if let Ok(compute_pipeline) = engine_particles::ParticleComputePipeline::new(
+                        &wgpu_state.renderer.device,
+                        particle_emitter.max_particles,
+                        &[], // Initial particles (empty)
+                    ) {
+                        wgpu_state.particle_compute_pipelines.insert(entity_id, compute_pipeline);
+                    }
+                }
+
+                // Update particle system position from entity transform
+                if let Some(system) = wgpu_state.particle_systems.get_mut(&entity_id) {
+                    system.position = entity.transform.position;
+                    system.update(dt);
+                }
+            }
+        }
+
         // Begin frame
         let (output, mut encoder, view) = wgpu_state.renderer.begin_frame(
             &wgpu_state.surface,
             &wgpu_state.depth_texture,
         )?;
+
+        // Update and dispatch particle compute shaders
+        for (entity_id, particle_system) in &wgpu_state.particle_systems {
+            if let Some(compute_pipeline) = wgpu_state.particle_compute_pipelines.get(entity_id) {
+                // Upload current particle data to GPU
+                compute_pipeline.upload_particles(
+                    &wgpu_state.renderer.queue,
+                    &particle_system.particles,
+                );
+
+                // Update simulation uniforms
+                compute_pipeline.update_uniforms(
+                    &wgpu_state.renderer.queue,
+                    dt,
+                    self.time,
+                    particle_system.properties.gravity,
+                );
+
+                // Dispatch compute shader
+                compute_pipeline.dispatch(&mut encoder);
+            }
+        }
 
         let view_proj = camera.view_projection_matrix();
         let view_proj_inverse = view_proj.inverse();
@@ -855,6 +951,60 @@ impl EditorApp {
                             first_mesh,
                         );
                         first_mesh = false;
+                    }
+                }
+            }
+        }
+
+        // Render particles after opaque geometry
+        if let Some(ref particle_renderer) = wgpu_state.particle_renderer {
+            // Calculate camera basis vectors for billboard rendering
+            let camera_forward = (camera.target - camera.position).normalize();
+            let camera_right = camera_forward.cross(camera.up).normalize();
+            let camera_up = camera_right.cross(camera_forward).normalize();
+
+            // Update particle renderer camera uniforms
+            particle_renderer.update_camera(
+                &wgpu_state.renderer.queue,
+                view_proj,
+                camera.position,
+                camera_right,
+                camera_up,
+            );
+
+            // Render each particle system
+            for (entity_id, particle_system) in &wgpu_state.particle_systems {
+                if let Some(compute_pipeline) = wgpu_state.particle_compute_pipelines.get(entity_id) {
+                    let particle_count = particle_system.particles.len() as u32;
+                    if particle_count > 0 {
+                        let mut particle_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Particle Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load, // Don't clear - preserve geometry
+                                    store: wgpu::StoreOp::Store,
+                                },
+                                depth_slice: None,
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &wgpu_state.depth_texture,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load, // Preserve depth
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
+
+                        particle_renderer.render(
+                            &mut particle_pass,
+                            compute_pipeline.particle_buffer(),
+                            particle_count,
+                        );
                     }
                 }
             }

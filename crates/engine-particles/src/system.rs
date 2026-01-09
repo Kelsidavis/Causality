@@ -32,7 +32,11 @@ pub struct ParticleSystem {
 impl ParticleSystem {
     /// Create a new particle system
     pub fn new(max_particles: u32, properties: EmitterProperties) -> Self {
-        let particles = vec![GpuParticle::default(); max_particles as usize];
+        // Initialize all particles as dead (position.y = -9999.0)
+        let mut particles = vec![GpuParticle::default(); max_particles as usize];
+        for particle in &mut particles {
+            particle.kill(); // Mark as dead
+        }
         let free_indices: VecDeque<usize> = (0..max_particles as usize).collect();
 
         Self {

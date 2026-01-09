@@ -1201,6 +1201,7 @@ dependencies = [
  "engine-assets",
  "engine-audio",
  "engine-core",
+ "engine-particles",
  "engine-physics",
  "engine-render",
  "engine-scene",

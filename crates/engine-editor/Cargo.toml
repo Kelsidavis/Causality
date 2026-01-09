@@ -16,6 +16,7 @@ engine-assets = { path = "../engine-assets" }
 engine-audio = { path = "../engine-audio" }
 engine-scene = { path = "../engine-scene" }
 engine-ai-assets = { path = "../engine-ai-assets" }
+engine-particles = { path = "../engine-particles" }
 glam = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }
