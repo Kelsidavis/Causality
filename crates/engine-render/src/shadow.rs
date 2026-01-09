@@ -123,6 +123,8 @@ impl ShadowMap {
             }],
         });
 
+        // Use the same vertex buffer layout as GpuVertex (80 bytes stride)
+        // We only need position for shadow pass, but must match the buffer stride
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Shadow Render Pipeline"),
             layout: Some(&pipeline_layout),
@@ -130,7 +132,7 @@ impl ShadowMap {
                 module: &shadow_shader,
                 entry_point: Some("vs_main"),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    array_stride: 80, // Must match GpuVertex size (position + normal + texcoord + color + tangent + bitangent + padding)
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
                         format: wgpu::VertexFormat::Float32x3,
@@ -145,7 +147,8 @@ impl ShadowMap {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                // No culling - both sides of faces cast shadows (meshes may not be watertight)
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,

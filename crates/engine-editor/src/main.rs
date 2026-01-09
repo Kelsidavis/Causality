@@ -682,9 +682,7 @@ impl EditorApp {
                         system.update(0.016); // Simulate ~3 frames worth of spawning
                     }
 
-                    eprintln!("✨ Created particle system at position {:?} with {} initial particles",
-                              position, system.active_particle_count());
-                    log::info!("  Created particle system at position {:?} with {} initial particles",
+                    log::info!("Created particle system at position {:?} with {} initial particles",
                               position, system.active_particle_count());
 
                     let initial_particles = system.particles.clone();
@@ -770,8 +768,8 @@ impl EditorApp {
 
         // Render shadow map (depth pass from light's perspective)
         if let Some(ref shadow_map) = wgpu_state.shadow_map {
-            // Directional light coming from above and to the side
-            let light_direction = glam::Vec3::new(0.5, -1.0, 0.3).normalize();
+            // Directional light coming from a lower angle for more visible shadows
+            let light_direction = glam::Vec3::new(0.8, -0.5, 0.4).normalize();
 
             // Calculate actual scene bounds from all entities
             let mut min_bounds = glam::Vec3::splat(f32::MAX);

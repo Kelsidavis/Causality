@@ -73,53 +73,49 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
-// Calculate shadow with PCF
+// Simple shadow calculation without PCF
 fn calculate_shadow(shadow_pos: vec4<f32>) -> f32 {
     // Perform perspective divide
-    var proj_coords = shadow_pos.xyz / shadow_pos.w;
+    let proj_coords = shadow_pos.xyz / shadow_pos.w;
 
-    // Transform to [0, 1] range
-    proj_coords = proj_coords * 0.5 + 0.5;
+    // Transform from NDC [-1,1] to texture coords [0,1]
+    let shadow_uv = vec2<f32>(
+        proj_coords.x * 0.5 + 0.5,
+        proj_coords.y * -0.5 + 0.5  // Flip Y for texture coordinates
+    );
+    let shadow_depth = proj_coords.z;  // Already in [0,1] for WebGPU
 
     // Check if outside shadow map bounds
-    if proj_coords.x < 0.0 || proj_coords.x > 1.0 ||
-       proj_coords.y < 0.0 || proj_coords.y > 1.0 ||
-       proj_coords.z < 0.0 || proj_coords.z > 1.0 {
-        return 1.0; // Not in shadow
+    if shadow_uv.x < 0.0 || shadow_uv.x > 1.0 ||
+       shadow_uv.y < 0.0 || shadow_uv.y > 1.0 ||
+       shadow_depth < 0.0 || shadow_depth > 1.0 {
+        return 1.0; // Outside shadow map = fully lit
     }
 
-    // PCF (Percentage Closer Filtering) for soft shadows
-    var shadow = 0.0;
-    let texel_size = 1.0 / 2048.0; // SHADOW_MAP_SIZE
+    // Apply bias to prevent shadow acne
+    let bias = 0.002;
 
-    for (var x = -1; x <= 1; x++) {
-        for (var y = -1; y <= 1; y++) {
-            let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-            shadow += textureSampleCompare(
-                shadow_texture,
-                shadow_sampler,
-                proj_coords.xy + offset,
-                proj_coords.z
-            );
-        }
-    }
+    // Single sample shadow comparison
+    let shadow = textureSampleCompare(
+        shadow_texture,
+        shadow_sampler,
+        shadow_uv,
+        shadow_depth - bias
+    );
 
-    return shadow / 9.0; // Average of 9 samples
+    return shadow;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Simple lighting calculation
-    // Light direction matches shadow map: coming from above and to the side
-    let light_dir = normalize(vec3<f32>(-0.5, 1.0, -0.3));
+    // Light direction matches shadow map: lower angle for more visible shadows
+    let light_dir = normalize(vec3<f32>(-0.8, 0.5, -0.4));
     let ambient = 0.3;
     let diffuse = max(dot(in.normal, light_dir), 0.0);
 
     // Calculate shadow
     let shadow = calculate_shadow(in.shadow_position);
-
-    // DEBUG: Visualize shadow value directly
-    // return vec4<f32>(shadow, shadow, shadow, 1.0);
 
     // Apply shadow to diffuse light (ambient not affected by shadow)
     let lighting = ambient + diffuse * 0.7 * shadow;
