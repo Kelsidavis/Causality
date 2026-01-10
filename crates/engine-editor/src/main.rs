@@ -2092,6 +2092,13 @@ impl EditorApp {
             }
         }
 
+        // Handle entity lock toggle from hierarchy panel
+        if let Some(entity_id) = editor_result.hierarchy.toggle_lock {
+            if let Some(ui) = self.ui.as_mut() {
+                ui.toggle_entity_lock(entity_id);
+            }
+        }
+
         // Handle terrain/water regeneration from inspector changes
         if editor_result.inspector.terrain_changed {
             self.undo_history.push_state(scene);
@@ -2391,6 +2398,16 @@ impl ApplicationHandler for EditorApp {
                     if let Some(entity_id) = ui.selected_entity {
                         ui.hide_all_except(scene, entity_id);
                         log::info!("Hiding all entities except selected");
+                    }
+                }
+            }
+            // L - Toggle lock of selected entity
+            if key_code == KeyCode::KeyL && !self.modifiers.control_key() && !self.modifiers.shift_key() && !self.modifiers.alt_key() {
+                if let Some(ui) = &mut self.ui {
+                    if let Some(entity_id) = ui.selected_entity {
+                        ui.toggle_entity_lock(entity_id);
+                        let locked = ui.is_entity_locked(entity_id);
+                        log::info!("{} entity", if locked { "Locked" } else { "Unlocked" });
                     }
                 }
             }

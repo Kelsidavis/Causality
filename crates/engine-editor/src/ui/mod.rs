@@ -226,6 +226,8 @@ pub struct EditorUi {
     pub redo_count: usize,
     // Hidden entities (editor-only, not saved to scene)
     pub hidden_entities: HashSet<EntityId>,
+    // Locked entities (prevent modification)
+    pub locked_entities: HashSet<EntityId>,
 }
 
 #[derive(Clone)]
@@ -274,6 +276,7 @@ impl EditorUi {
             undo_count: 0,
             redo_count: 0,
             hidden_entities: HashSet::new(),
+            locked_entities: HashSet::new(),
         }
     }
 
@@ -309,6 +312,30 @@ impl EditorUi {
     /// Get number of hidden entities
     pub fn hidden_count(&self) -> usize {
         self.hidden_entities.len()
+    }
+
+    /// Toggle lock state of an entity
+    pub fn toggle_entity_lock(&mut self, entity_id: EntityId) {
+        if self.locked_entities.contains(&entity_id) {
+            self.locked_entities.remove(&entity_id);
+        } else {
+            self.locked_entities.insert(entity_id);
+        }
+    }
+
+    /// Check if an entity is locked
+    pub fn is_entity_locked(&self, entity_id: EntityId) -> bool {
+        self.locked_entities.contains(&entity_id)
+    }
+
+    /// Unlock all entities
+    pub fn unlock_all_entities(&mut self) {
+        self.locked_entities.clear();
+    }
+
+    /// Get number of locked entities
+    pub fn locked_count(&self) -> usize {
+        self.locked_entities.len()
     }
 
     /// Update camera info for status bar display
@@ -381,6 +408,7 @@ impl EditorUi {
                 &mut self.selected_entity,
                 &mut self.hierarchy_state,
                 &self.hidden_entities,
+                &self.locked_entities,
             );
         }
 
@@ -1219,6 +1247,9 @@ impl EditorUi {
                     ui.end_row();
                     ui.label("Alt+H");
                     ui.label("Hide All Except Selected");
+                    ui.end_row();
+                    ui.label("L");
+                    ui.label("Toggle Entity Lock");
                     ui.end_row();
                     ui.label("Home");
                     ui.label("Reset Camera View");
