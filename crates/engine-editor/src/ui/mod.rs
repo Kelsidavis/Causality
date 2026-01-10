@@ -9,7 +9,7 @@ use egui::Context;
 use engine_scene::{entity::EntityId, scene::Scene};
 
 // Re-export types for use in main.rs
-pub use inspector::InspectorResult;
+pub use inspector::{InspectorResult, InspectorState};
 pub use hierarchy::{HierarchyAction, HierarchyState};
 
 /// Brush action to apply in the scene
@@ -31,6 +31,7 @@ pub struct EditorResult {
     pub undo_requested: bool,
     pub redo_requested: bool,
     pub scene_changed: bool, // True when scene loaded or new scene created
+    pub open_recent_file: Option<String>, // Path to recent file to open
 }
 
 /// Brush tool mode
@@ -204,12 +205,16 @@ pub struct EditorUi {
     pub save_path: String,
     pub load_path: String,
     pub current_scene_path: Option<String>,
+    pub recent_files: Vec<String>,
+    pub max_recent_files: usize,
     pub scene_modified: bool,
     pub exit_requested: bool,
     // Hierarchy panel state
     pub hierarchy_state: HierarchyState,
     // Brush tool state
     pub brush_tool: BrushTool,
+    // Inspector state (snapping settings)
+    pub inspector_state: InspectorState,
     // Performance metrics
     pub performance: PerformanceMetrics,
     // Camera info for status bar
@@ -250,10 +255,13 @@ impl EditorUi {
             save_path: "assets/scenes/saved_scene.ron".to_string(),
             load_path: "assets/scenes/castle.ron".to_string(),
             current_scene_path: None,
+            recent_files: Vec::new(),
+            max_recent_files: 10,
             scene_modified: false,
             exit_requested: false,
             hierarchy_state: HierarchyState::default(),
             brush_tool: BrushTool::default(),
+            inspector_state: InspectorState::default(),
             performance: PerformanceMetrics::new(),
             camera_position: glam::Vec3::ZERO,
             camera_distance: 15.0,
@@ -295,6 +303,16 @@ impl EditorUi {
         });
     }
 
+    /// Add a file to the recent files list
+    pub fn add_recent_file(&mut self, path: String) {
+        // Remove if already exists (to move it to the front)
+        self.recent_files.retain(|p| p != &path);
+        // Add to front
+        self.recent_files.insert(0, path);
+        // Trim to max
+        self.recent_files.truncate(self.max_recent_files);
+    }
+
     /// Render the entire editor UI and return change indicators
     pub fn render(&mut self, ctx: &Context, scene: &mut Scene, can_undo: bool, can_redo: bool) -> EditorResult {
         let mut result = EditorResult::default();
@@ -320,7 +338,7 @@ impl EditorUi {
 
         // Right panel - Inspector (captures changes)
         if self.show_inspector {
-            result.inspector = inspector::render_inspector_panel(ctx, scene, &mut self.selected_entity);
+            result.inspector = inspector::render_inspector_panel(ctx, scene, &mut self.selected_entity, &mut self.inspector_state);
         }
 
         // Bottom panel - Console
@@ -381,6 +399,29 @@ impl EditorUi {
                     if ui.add(egui::Button::new("Open Scene...").shortcut_text("Ctrl+O")).clicked() {
                         self.show_load_dialog = true;
                     }
+
+                    // Recent Files submenu
+                    ui.menu_button("Recent Files", |ui| {
+                        if self.recent_files.is_empty() {
+                            ui.label("No recent files");
+                        } else {
+                            for path in self.recent_files.clone() {
+                                let file_name = std::path::Path::new(&path)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or(&path);
+                                if ui.button(file_name).clicked() {
+                                    result.open_recent_file = Some(path);
+                                    ui.close();
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Clear Recent Files").clicked() {
+                                self.recent_files.clear();
+                                ui.close();
+                            }
+                        }
+                    });
 
                     ui.separator();
 
@@ -492,6 +533,7 @@ impl EditorUi {
                         match scene.save_to_file(&self.save_path) {
                             Ok(_) => {
                                 self.log_info(format!("Scene saved to: {}", self.save_path));
+                                self.add_recent_file(self.save_path.clone());
                                 self.current_scene_path = Some(self.save_path.clone());
                                 self.scene_modified = false;
                                 self.show_save_dialog = false;
@@ -534,6 +576,7 @@ impl EditorUi {
                         match scene.save_to_file(&self.save_path) {
                             Ok(_) => {
                                 self.log_info(format!("Scene saved to: {}", self.save_path));
+                                self.add_recent_file(self.save_path.clone());
                                 self.current_scene_path = Some(self.save_path.clone());
                                 self.scene_modified = false;
                                 self.show_save_as_dialog = false;
@@ -581,6 +624,7 @@ impl EditorUi {
                             Ok(loaded_scene) => {
                                 *scene = loaded_scene;
                                 self.log_info(format!("Scene loaded from: {}", self.load_path));
+                                self.add_recent_file(self.load_path.clone());
                                 self.current_scene_path = Some(self.load_path.clone());
                                 self.scene_modified = false;
                                 self.show_load_dialog = false;
@@ -1095,7 +1139,7 @@ impl EditorUi {
                     ui.label("Show Shortcuts Help");
                     ui.end_row();
                     ui.label("Escape");
-                    ui.label("Exit Editor");
+                    ui.label("Deselect Entity / Exit Editor");
                     ui.end_row();
                 });
 

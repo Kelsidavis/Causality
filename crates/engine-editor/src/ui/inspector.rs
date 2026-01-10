@@ -1,6 +1,7 @@
 // Inspector panel - shows entity properties
 
 use egui::{Context, ScrollArea};
+use glam::Quat;
 use engine_scene::{
     components::{
         Camera, Light, LightType, MeshRenderer, ParticleEmitter, TerrainGenerator, TerrainWater, Water,
@@ -17,10 +18,52 @@ pub struct InspectorResult {
     pub components_changed: bool,
 }
 
+/// State for the inspector panel including snapping settings
+#[derive(Clone)]
+pub struct InspectorState {
+    /// Enable snapping for position
+    pub snap_position: bool,
+    /// Enable snapping for scale
+    pub snap_scale: bool,
+    /// Enable snapping for rotation
+    pub snap_rotation: bool,
+    /// Position snap grid size
+    pub position_grid: f32,
+    /// Scale snap grid size
+    pub scale_grid: f32,
+    /// Rotation snap angle (degrees)
+    pub rotation_grid: f32,
+}
+
+impl Default for InspectorState {
+    fn default() -> Self {
+        Self {
+            snap_position: false,
+            snap_scale: false,
+            snap_rotation: false,
+            position_grid: 1.0,
+            scale_grid: 0.25,
+            rotation_grid: 15.0,
+        }
+    }
+}
+
+impl InspectorState {
+    /// Snap a value to the grid
+    fn snap_value(value: f32, grid: f32) -> f32 {
+        if grid > 0.0 {
+            (value / grid).round() * grid
+        } else {
+            value
+        }
+    }
+}
+
 pub fn render_inspector_panel(
     ctx: &Context,
     scene: &mut Scene,
     selected_entity: &mut Option<EntityId>,
+    inspector_state: &mut InspectorState,
 ) -> InspectorResult {
     let mut result = InspectorResult::default();
     let mut components_to_remove: Vec<ComponentType> = Vec::new();
@@ -42,41 +85,142 @@ pub fn render_inspector_panel(
 
                         // Transform component (always present)
                         ui.collapsing("Transform", |ui| {
+                            // Snapping controls
+                            ui.horizontal(|ui| {
+                                ui.label("Snap:");
+                                ui.checkbox(&mut inspector_state.snap_position, "Pos");
+                                ui.checkbox(&mut inspector_state.snap_scale, "Scale");
+                                ui.checkbox(&mut inspector_state.snap_rotation, "Rot");
+                            });
+
+                            // Grid size settings (collapsible)
+                            ui.collapsing("Snap Settings", |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("Position Grid:");
+                                    ui.add(egui::DragValue::new(&mut inspector_state.position_grid)
+                                        .speed(0.1)
+                                        .range(0.01..=10.0));
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Scale Grid:");
+                                    ui.add(egui::DragValue::new(&mut inspector_state.scale_grid)
+                                        .speed(0.05)
+                                        .range(0.01..=1.0));
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Rotation Grid:");
+                                    ui.add(egui::DragValue::new(&mut inspector_state.rotation_grid)
+                                        .speed(1.0)
+                                        .range(1.0..=90.0)
+                                        .suffix("°"));
+                                });
+                            });
+
+                            ui.separator();
+
                             ui.label("Position:");
                             ui.horizontal(|ui| {
                                 ui.label("X:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.position.x).speed(0.1));
+                                let mut x = entity.transform.position.x;
+                                if ui.add(egui::DragValue::new(&mut x).speed(0.1)).changed() {
+                                    entity.transform.position.x = if inspector_state.snap_position {
+                                        InspectorState::snap_value(x, inspector_state.position_grid)
+                                    } else {
+                                        x
+                                    };
+                                }
                                 ui.label("Y:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.position.y).speed(0.1));
+                                let mut y = entity.transform.position.y;
+                                if ui.add(egui::DragValue::new(&mut y).speed(0.1)).changed() {
+                                    entity.transform.position.y = if inspector_state.snap_position {
+                                        InspectorState::snap_value(y, inspector_state.position_grid)
+                                    } else {
+                                        y
+                                    };
+                                }
                                 ui.label("Z:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.position.z).speed(0.1));
+                                let mut z = entity.transform.position.z;
+                                if ui.add(egui::DragValue::new(&mut z).speed(0.1)).changed() {
+                                    entity.transform.position.z = if inspector_state.snap_position {
+                                        InspectorState::snap_value(z, inspector_state.position_grid)
+                                    } else {
+                                        z
+                                    };
+                                }
                             });
 
                             ui.add_space(5.0);
                             ui.label("Scale:");
                             ui.horizontal(|ui| {
                                 ui.label("X:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.scale.x).speed(0.01));
+                                let mut sx = entity.transform.scale.x;
+                                if ui.add(egui::DragValue::new(&mut sx).speed(0.01)).changed() {
+                                    entity.transform.scale.x = if inspector_state.snap_scale {
+                                        InspectorState::snap_value(sx, inspector_state.scale_grid)
+                                    } else {
+                                        sx
+                                    };
+                                }
                                 ui.label("Y:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.scale.y).speed(0.01));
+                                let mut sy = entity.transform.scale.y;
+                                if ui.add(egui::DragValue::new(&mut sy).speed(0.01)).changed() {
+                                    entity.transform.scale.y = if inspector_state.snap_scale {
+                                        InspectorState::snap_value(sy, inspector_state.scale_grid)
+                                    } else {
+                                        sy
+                                    };
+                                }
                                 ui.label("Z:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.scale.z).speed(0.01));
+                                let mut sz = entity.transform.scale.z;
+                                if ui.add(egui::DragValue::new(&mut sz).speed(0.01)).changed() {
+                                    entity.transform.scale.z = if inspector_state.snap_scale {
+                                        InspectorState::snap_value(sz, inspector_state.scale_grid)
+                                    } else {
+                                        sz
+                                    };
+                                }
                             });
 
                             ui.add_space(5.0);
-                            ui.label("Rotation (Quaternion):");
+                            ui.label("Rotation (Euler Degrees):");
+                            // Convert quaternion to euler angles for easier editing
+                            let (roll, pitch, yaw) = quat_to_euler(entity.transform.rotation);
+                            let mut euler_x = roll.to_degrees();
+                            let mut euler_y = pitch.to_degrees();
+                            let mut euler_z = yaw.to_degrees();
+
+                            let mut rotation_changed = false;
                             ui.horizontal(|ui| {
                                 ui.label("X:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.rotation.x).speed(0.01));
+                                if ui.add(egui::DragValue::new(&mut euler_x).speed(1.0).suffix("°")).changed() {
+                                    if inspector_state.snap_rotation {
+                                        euler_x = InspectorState::snap_value(euler_x, inspector_state.rotation_grid);
+                                    }
+                                    rotation_changed = true;
+                                }
                                 ui.label("Y:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.rotation.y).speed(0.01));
-                            });
-                            ui.horizontal(|ui| {
+                                if ui.add(egui::DragValue::new(&mut euler_y).speed(1.0).suffix("°")).changed() {
+                                    if inspector_state.snap_rotation {
+                                        euler_y = InspectorState::snap_value(euler_y, inspector_state.rotation_grid);
+                                    }
+                                    rotation_changed = true;
+                                }
                                 ui.label("Z:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.rotation.z).speed(0.01));
-                                ui.label("W:");
-                                ui.add(egui::DragValue::new(&mut entity.transform.rotation.w).speed(0.01));
+                                if ui.add(egui::DragValue::new(&mut euler_z).speed(1.0).suffix("°")).changed() {
+                                    if inspector_state.snap_rotation {
+                                        euler_z = InspectorState::snap_value(euler_z, inspector_state.rotation_grid);
+                                    }
+                                    rotation_changed = true;
+                                }
                             });
+
+                            if rotation_changed {
+                                entity.transform.rotation = euler_to_quat(
+                                    euler_x.to_radians(),
+                                    euler_y.to_radians(),
+                                    euler_z.to_radians(),
+                                );
+                            }
                         });
 
                         ui.add_space(10.0);
@@ -627,4 +771,32 @@ fn render_particle_emitter_ui(ui: &mut egui::Ui, particle: &mut ParticleEmitter)
         ui.label("Alpha:");
         ui.add(egui::DragValue::new(&mut particle.initial_color[3]).speed(0.01).range(0.0..=1.0));
     });
+}
+
+/// Convert quaternion to euler angles (roll, pitch, yaw) in radians
+fn quat_to_euler(q: Quat) -> (f32, f32, f32) {
+    // Roll (X axis rotation)
+    let sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z);
+    let cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y);
+    let roll = sinr_cosp.atan2(cosr_cosp);
+
+    // Pitch (Y axis rotation)
+    let sinp = 2.0 * (q.w * q.y - q.z * q.x);
+    let pitch = if sinp.abs() >= 1.0 {
+        std::f32::consts::FRAC_PI_2.copysign(sinp)
+    } else {
+        sinp.asin()
+    };
+
+    // Yaw (Z axis rotation)
+    let siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
+    let cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+    let yaw = siny_cosp.atan2(cosy_cosp);
+
+    (roll, pitch, yaw)
+}
+
+/// Convert euler angles (roll, pitch, yaw) in radians to quaternion
+fn euler_to_quat(roll: f32, pitch: f32, yaw: f32) -> Quat {
+    Quat::from_euler(glam::EulerRot::XYZ, roll, pitch, yaw)
 }

@@ -2046,6 +2046,39 @@ impl EditorApp {
             log::info!("Undo history cleared (scene changed)");
         }
 
+        // Handle opening recent file
+        if let Some(path) = editor_result.open_recent_file {
+            if std::path::Path::new(&path).exists() {
+                match Scene::load_from_file(&path) {
+                    Ok(loaded_scene) => {
+                        if let Some(scene) = &mut self.scene {
+                            *scene = loaded_scene;
+                        }
+                        if let Some(ui) = &mut self.ui {
+                            ui.log_info(format!("Scene loaded from: {}", path));
+                            ui.add_recent_file(path.clone());
+                            ui.current_scene_path = Some(path);
+                            ui.scene_modified = false;
+                            ui.selected_entity = None;
+                        }
+                        self.undo_history.clear();
+                        log::info!("Loaded recent file, undo history cleared");
+                    }
+                    Err(e) => {
+                        if let Some(ui) = &mut self.ui {
+                            ui.log_error(format!("Failed to load scene: {}", e));
+                        }
+                    }
+                }
+            } else {
+                if let Some(ui) = &mut self.ui {
+                    ui.log_error(format!("File not found: {}", path));
+                    // Remove from recent files if it no longer exists
+                    ui.recent_files.retain(|p| p != &path);
+                }
+            }
+        }
+
         // Update buffers and render - egui_state borrow is ended
         {
             let egui_state = self.egui_state.as_mut().unwrap();
@@ -2389,18 +2422,27 @@ impl ApplicationHandler for EditorApp {
                     ui.show_shortcuts_help = !ui.show_shortcuts_help;
                 }
             }
+            // Escape - Deselect entity or exit
+            if key_code == KeyCode::Escape {
+                if let Some(ui) = &mut self.ui {
+                    if ui.selected_entity.is_some() {
+                        // Deselect the entity
+                        ui.selected_entity = None;
+                        log::info!("Entity deselected");
+                    } else if ui.scene_modified {
+                        // Show exit confirmation if scene has unsaved changes
+                        ui.show_exit_confirm = true;
+                    } else {
+                        // Exit the editor
+                        ui.exit_requested = true;
+                    }
+                }
+            }
         }
 
         // Handle other window events
         match event {
-            WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
-                event: KeyEvent {
-                    state: ElementState::Pressed,
-                    physical_key: PhysicalKey::Code(KeyCode::Escape),
-                    ..
-                },
-                ..
-            } => {
+            WindowEvent::CloseRequested => {
                 log::info!("Closing...");
                 event_loop.exit();
             }
