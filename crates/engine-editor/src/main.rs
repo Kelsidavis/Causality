@@ -2280,6 +2280,14 @@ impl ApplicationHandler for EditorApp {
                     }
                 }
             }
+            // Ctrl+Shift+N - Create new entity (opens dialog)
+            if self.modifiers.control_key() && self.modifiers.shift_key() && key_code == KeyCode::KeyN {
+                if let Some(ui) = &mut self.ui {
+                    ui.hierarchy_state.show_create_dialog = true;
+                    ui.hierarchy_state.new_entity_parent = None;
+                    ui.hierarchy_state.new_entity_name = "New Entity".to_string();
+                }
+            }
             // F - Focus camera on selected entity
             if key_code == KeyCode::KeyF && !self.modifiers.control_key() {
                 if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {

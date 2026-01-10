@@ -939,12 +939,15 @@ impl EditorUi {
                 ));
                 ui.separator();
 
-                // Selected entity indicator
+                // Selected entity indicator or help tip
                 if let Some(entity_id) = self.selected_entity {
                     if let Some(entity) = scene.get_entity(entity_id) {
                         ui.colored_label(egui::Color32::from_rgb(255, 200, 100), format!("Selected: {}", entity.name));
                         ui.separator();
                     }
+                } else if self.brush_tool.mode == BrushMode::Select {
+                    ui.colored_label(egui::Color32::GRAY, "Click viewport to select | F1 for shortcuts");
+                    ui.separator();
                 }
 
                 // Brush mode indicator
@@ -1174,6 +1177,9 @@ impl EditorUi {
                 ui.separator();
                 ui.heading("Hierarchy");
                 egui::Grid::new("hierarchy_shortcuts").striped(true).show(ui, |ui| {
+                    ui.label("Ctrl+Shift+N");
+                    ui.label("Create New Entity");
+                    ui.end_row();
                     ui.label("F2");
                     ui.label("Rename Selected Entity");
                     ui.end_row();
