@@ -496,12 +496,31 @@ impl EditorUi {
                 });
 
                 ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.show_hierarchy, "Hierarchy");
-                    ui.checkbox(&mut self.show_inspector, "Inspector");
-                    ui.checkbox(&mut self.show_console, "Console");
+                    if ui.checkbox(&mut self.show_hierarchy, "Hierarchy").changed() {
+                        ui.close();
+                    }
+                    if ui.checkbox(&mut self.show_inspector, "Inspector").changed() {
+                        ui.close();
+                    }
+                    if ui.checkbox(&mut self.show_console, "Console").changed() {
+                        ui.close();
+                    }
                     ui.separator();
-                    ui.checkbox(&mut self.show_brush_panel, "Brush Tool");
-                    ui.checkbox(&mut self.show_statistics, "Statistics");
+                    if ui.checkbox(&mut self.show_brush_panel, "Brush Tool").changed() {
+                        ui.close();
+                    }
+                    if ui.checkbox(&mut self.show_statistics, "Statistics").changed() {
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Reset Layout").clicked() {
+                        self.show_hierarchy = true;
+                        self.show_inspector = true;
+                        self.show_console = true;
+                        self.show_brush_panel = false;
+                        self.show_statistics = false;
+                        ui.close();
+                    }
                 });
 
                 ui.menu_button("Help", |ui| {
@@ -1198,11 +1217,22 @@ impl EditorUi {
                 });
 
                 ui.separator();
+                ui.heading("Panels");
+                egui::Grid::new("panel_shortcuts").striped(true).show(ui, |ui| {
+                    ui.label("F1");
+                    ui.label("Toggle Shortcuts Help");
+                    ui.end_row();
+                    ui.label("F3");
+                    ui.label("Toggle Statistics Panel");
+                    ui.end_row();
+                    ui.label("F4");
+                    ui.label("Toggle Console Panel");
+                    ui.end_row();
+                });
+
+                ui.separator();
                 ui.heading("General");
                 egui::Grid::new("general_shortcuts").striped(true).show(ui, |ui| {
-                    ui.label("F1");
-                    ui.label("Show Shortcuts Help");
-                    ui.end_row();
                     ui.label("Escape");
                     ui.label("Deselect Entity / Exit Editor");
                     ui.end_row();

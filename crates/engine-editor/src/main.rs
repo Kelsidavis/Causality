@@ -2492,6 +2492,18 @@ impl ApplicationHandler for EditorApp {
                     ui.show_shortcuts_help = !ui.show_shortcuts_help;
                 }
             }
+            // F3 - Toggle Statistics panel
+            if key_code == KeyCode::F3 {
+                if let Some(ui) = &mut self.ui {
+                    ui.show_statistics = !ui.show_statistics;
+                }
+            }
+            // F4 - Toggle Console panel
+            if key_code == KeyCode::F4 {
+                if let Some(ui) = &mut self.ui {
+                    ui.show_console = !ui.show_console;
+                }
+            }
             // F2 - Rename selected entity
             if key_code == KeyCode::F2 {
                 if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
