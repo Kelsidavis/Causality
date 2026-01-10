@@ -3,8 +3,10 @@
 mod ui;
 pub mod ipc;
 mod file_ipc;
+mod undo;
 
 use anyhow::Result;
+use undo::UndoHistory;
 use clap::Parser;
 use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent, HeightMap, TerrainConfig, Terrain, compute_water_fill, generate_water_mesh};
 use wgpu::util::DeviceExt;
@@ -24,7 +26,7 @@ use engine_render::{
     water::WaterRenderer,
 };
 use engine_scene::{
-    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water, TerrainWater, WaterBody},
+    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water, TerrainWater, WaterBody, TerrainGenerator},
     entity::EntityId,
     scene::Scene,
     transform::Transform,
@@ -32,7 +34,7 @@ use engine_scene::{
 use engine_scripting::{AudioCommand, AudioCommandQueue, Script, ScriptSystem};
 use glam::{Quat, Vec3, Vec4};
 use std::sync::{Arc, Mutex};
-use ui::{viewport::ViewportControls, EditorUi};
+use ui::{viewport::ViewportControls, EditorUi, EditorResult};
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -72,6 +74,8 @@ struct EditorApp {
     ipc_channel: Option<ipc::IpcChannel>,
     file_ipc: Option<file_ipc::FileIpcHandler>,
     scene_file_path: Option<String>,
+    modifiers: winit::keyboard::ModifiersState,
+    undo_history: UndoHistory,
 }
 
 struct EguiState {
@@ -105,6 +109,10 @@ struct WgpuState {
     terrain_config: Option<TerrainConfig>,
     /// Computed terrain water bodies for rendering
     terrain_water_bodies: Vec<TerrainWaterBodyInfo>,
+    /// Flag to regenerate terrain on next frame
+    terrain_needs_regeneration: bool,
+    /// Flag to regenerate water on next frame
+    water_needs_regeneration: bool,
 }
 
 /// Info about a computed terrain water body for rendering
@@ -157,8 +165,10 @@ impl EditorApp {
             hot_reload: None,
             script_paths: std::collections::HashMap::new(),
             ipc_channel: None,
+            modifiers: winit::keyboard::ModifiersState::empty(),
             file_ipc: Some(file_ipc::FileIpcHandler::new()),
             scene_file_path,
+            undo_history: UndoHistory::new(50),
         }
     }
 
@@ -267,40 +277,62 @@ impl EditorApp {
         // Scene is now loaded from file instead of being generated
         // No need to create entities programmatically
 
-        // Process TerrainWater components - compute water fill and generate meshes
+        // Process TerrainGenerator and TerrainWater components
         let mut terrain_heightmap = None;
         let mut terrain_config = None;
         let mut terrain_water_bodies = Vec::new();
+
+        // First, look for TerrainGenerator component to get terrain config
+        for entity in scene.entities() {
+            if let Some(terrain_gen) = entity.get_component::<TerrainGenerator>() {
+                log::info!("Found TerrainGenerator component: {}x{}, scale={}, moat={}",
+                    terrain_gen.width, terrain_gen.depth, terrain_gen.scale, terrain_gen.moat_enabled);
+
+                // Build TerrainConfig from component
+                let config = TerrainConfig {
+                    width: terrain_gen.width,
+                    depth: terrain_gen.depth,
+                    scale: terrain_gen.scale,
+                    height_scale: terrain_gen.height_scale,
+                    seed: terrain_gen.seed,
+                    octaves: terrain_gen.octaves,
+                    frequency: terrain_gen.frequency,
+                    lacunarity: terrain_gen.lacunarity,
+                    persistence: terrain_gen.persistence,
+                };
+
+                // Generate heightmap based on moat setting
+                let heightmap = if terrain_gen.moat_enabled {
+                    HeightMap::generate_with_moat(
+                        &config,
+                        terrain_gen.moat_inner_radius,
+                        terrain_gen.moat_outer_radius,
+                        terrain_gen.moat_depth,
+                    )
+                } else {
+                    HeightMap::generate(&config)
+                };
+
+                log::info!("Generated terrain heightmap {}x{}", config.width, config.depth);
+
+                // Generate and upload terrain mesh
+                let terrain_mesh = Terrain::generate_mesh_from_heightmap(&heightmap, &config);
+                log::info!("Generated terrain mesh '{}' with {} vertices", terrain_mesh.name, terrain_mesh.vertices.len());
+                let gpu_vertices = convert_mesh_to_gpu(&terrain_mesh);
+                mesh_manager.upload_mesh(&renderer.device, "terrain".to_string(), &gpu_vertices, &terrain_mesh.indices);
+
+                terrain_heightmap = Some(heightmap);
+                terrain_config = Some(config);
+                break; // Only process first TerrainGenerator
+            }
+        }
+
+        // Then, process TerrainWater components for water fill
         for entity in scene.entities() {
             if let Some(terrain_water) = entity.get_component::<TerrainWater>() {
                 log::info!("Found TerrainWater component with ground_water_level={}", terrain_water.ground_water_level);
 
-                // Generate terrain heightmap with basins for water containment
-                if terrain_heightmap.is_none() {
-                    let config = TerrainConfig {
-                        width: 64,
-                        depth: 64,
-                        scale: 50.0,
-                        height_scale: 5.0,
-                        seed: 42,
-                        ..Default::default()
-                    };
-                    // Use generate_with_basins to create terrain with depressions that can hold water
-                    terrain_heightmap = Some(HeightMap::generate_with_basins(&config, 3));
-                    terrain_config = Some(config.clone());
-                    log::info!("Generated terrain heightmap {}x{} with basins", 64, 64);
-
-                    // Generate and upload terrain mesh for rendering
-                    let terrain_mesh = Terrain::generate_mesh_from_heightmap(
-                        &terrain_heightmap.as_ref().unwrap(),
-                        &config,
-                    );
-                    log::info!("Generated terrain mesh '{}' with {} vertices", terrain_mesh.name, terrain_mesh.vertices.len());
-                    let gpu_vertices = convert_mesh_to_gpu(&terrain_mesh);
-                    mesh_manager.upload_mesh(&renderer.device, "terrain".to_string(), &gpu_vertices, &terrain_mesh.indices);
-                }
-
-                // Compute water fill
+                // Compute water fill if we have terrain
                 if let (Some(ref heightmap), Some(ref config)) = (&terrain_heightmap, &terrain_config) {
                     let result = compute_water_fill(
                         heightmap,
@@ -485,6 +517,8 @@ impl EditorApp {
             terrain_heightmap,
             terrain_config,
             terrain_water_bodies,
+            terrain_needs_regeneration: false,
+            water_needs_regeneration: false,
         });
         self.camera = Some(camera);
         self.scene = Some(scene);
@@ -675,6 +709,94 @@ impl EditorApp {
 
             // Cleanup old debounce entries periodically
             hot_reload.cleanup_old_debounce_entries();
+        }
+
+        // Handle deferred terrain/water regeneration
+        if wgpu_state.terrain_needs_regeneration {
+            wgpu_state.terrain_needs_regeneration = false;
+
+            // Find TerrainGenerator component and regenerate
+            for entity in scene.entities() {
+                if let Some(terrain_gen) = entity.get_component::<TerrainGenerator>() {
+                    log::info!("Regenerating terrain: {}x{}, moat={}", terrain_gen.width, terrain_gen.depth, terrain_gen.moat_enabled);
+
+                    let config = TerrainConfig {
+                        width: terrain_gen.width,
+                        depth: terrain_gen.depth,
+                        scale: terrain_gen.scale,
+                        height_scale: terrain_gen.height_scale,
+                        seed: terrain_gen.seed,
+                        octaves: terrain_gen.octaves,
+                        frequency: terrain_gen.frequency,
+                        lacunarity: terrain_gen.lacunarity,
+                        persistence: terrain_gen.persistence,
+                    };
+
+                    let heightmap = if terrain_gen.moat_enabled {
+                        HeightMap::generate_with_moat(
+                            &config,
+                            terrain_gen.moat_inner_radius,
+                            terrain_gen.moat_outer_radius,
+                            terrain_gen.moat_depth,
+                        )
+                    } else {
+                        HeightMap::generate(&config)
+                    };
+
+                    let terrain_mesh = Terrain::generate_mesh_from_heightmap(&heightmap, &config);
+                    let gpu_vertices = convert_mesh_to_gpu(&terrain_mesh);
+                    wgpu_state.mesh_manager.upload_mesh(&wgpu_state.renderer.device, "terrain".to_string(), &gpu_vertices, &terrain_mesh.indices);
+
+                    wgpu_state.terrain_heightmap = Some(heightmap);
+                    wgpu_state.terrain_config = Some(config);
+
+                    if let Some(ui) = &mut self.ui {
+                        ui.log_info("Terrain regenerated".to_string());
+                    }
+                    break;
+                }
+            }
+        }
+
+        if wgpu_state.water_needs_regeneration {
+            wgpu_state.water_needs_regeneration = false;
+
+            // Find TerrainWater component and regenerate water
+            if let (Some(ref heightmap), Some(ref config)) = (&wgpu_state.terrain_heightmap, &wgpu_state.terrain_config) {
+                wgpu_state.terrain_water_bodies.clear();
+
+                for entity in scene.entities() {
+                    if let Some(terrain_water) = entity.get_component::<TerrainWater>() {
+                        log::info!("Regenerating water: ground_level={}", terrain_water.ground_water_level);
+
+                        let result = compute_water_fill(
+                            heightmap,
+                            terrain_water.ground_water_level,
+                            terrain_water.min_water_depth,
+                            terrain_water.min_water_area,
+                        );
+                        log::info!("Water fill: {} bodies found", result.water_bodies.len());
+
+                        for computed_body in &result.water_bodies {
+                            let mesh = generate_water_mesh(computed_body, heightmap, config);
+                            let gpu_vertices = convert_mesh_to_gpu(&mesh);
+                            wgpu_state.mesh_manager.upload_mesh(&wgpu_state.renderer.device, mesh.name.clone(), &gpu_vertices, &mesh.indices);
+
+                            wgpu_state.terrain_water_bodies.push(TerrainWaterBodyInfo {
+                                mesh_name: mesh.name,
+                                surface_level: computed_body.surface_level,
+                                flow_direction: computed_body.flow_direction,
+                                flow_speed: computed_body.flow_speed,
+                            });
+                        }
+
+                        if let Some(ui) = &mut self.ui {
+                            ui.log_info(format!("Water regenerated: {} bodies", result.water_bodies.len()));
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
         // Update camera from viewport controls
@@ -1318,14 +1440,17 @@ impl EditorApp {
             }
         }
 
-        // Render egui UI
-        let (paint_jobs, textures_delta, screen_descriptor) = {
+        // Render egui UI and capture editor changes
+        let (paint_jobs, textures_delta, screen_descriptor, editor_result) = {
             let ui = self.ui.as_mut().unwrap();
             let egui_state = self.egui_state.as_mut().unwrap();
+            let can_undo = self.undo_history.can_undo();
+            let can_redo = self.undo_history.can_redo();
 
             let raw_input = egui_state.winit_state.take_egui_input(window);
+            let mut editor_result = EditorResult::default();
             let full_output = egui_state.context.run(raw_input, |ctx| {
-                ui.render(ctx, scene);
+                editor_result = ui.render(ctx, scene, can_undo, can_redo);
             });
 
             egui_state.winit_state.handle_platform_output(
@@ -1352,8 +1477,104 @@ impl EditorApp {
                 );
             }
 
-            (paint_jobs, full_output.textures_delta, screen_descriptor)
+            (paint_jobs, full_output.textures_delta, screen_descriptor, editor_result)
         };
+
+        // Handle entity creation from hierarchy panel
+        if let Some((entity_name, parent_id)) = editor_result.hierarchy.create_entity {
+            self.undo_history.push_state(scene);
+            let new_id = scene.create_entity(entity_name);
+            if let Some(parent) = parent_id {
+                scene.set_parent(new_id, Some(parent));
+            }
+            if let Some(ui) = self.ui.as_mut() {
+                ui.selected_entity = Some(new_id);
+                ui.mark_scene_modified();
+            }
+        }
+
+        // Handle entity deletion from hierarchy panel
+        if let Some(entity_id) = editor_result.hierarchy.delete_entity {
+            self.undo_history.push_state(scene);
+            scene.remove_entity(entity_id);
+            if let Some(ui) = self.ui.as_mut() {
+                if ui.selected_entity == Some(entity_id) {
+                    ui.selected_entity = None;
+                }
+                ui.mark_scene_modified();
+            }
+        }
+
+        // Handle entity duplication from hierarchy panel
+        if let Some(entity_id) = editor_result.hierarchy.duplicate_entity {
+            self.undo_history.push_state(scene);
+            if let Some(new_id) = scene.duplicate_entity(entity_id) {
+                if let Some(ui) = self.ui.as_mut() {
+                    ui.selected_entity = Some(new_id);
+                    ui.mark_scene_modified();
+                }
+            }
+        }
+
+        // Handle entity reparenting from hierarchy panel
+        if let Some((child_id, new_parent_id)) = editor_result.hierarchy.reparent {
+            self.undo_history.push_state(scene);
+            scene.set_parent(child_id, new_parent_id);
+            if let Some(ui) = self.ui.as_mut() {
+                ui.mark_scene_modified();
+            }
+        }
+
+        // Handle terrain/water regeneration from inspector changes
+        if editor_result.inspector.terrain_changed {
+            self.undo_history.push_state(scene);
+            wgpu_state.terrain_needs_regeneration = true;
+            wgpu_state.water_needs_regeneration = true; // Water depends on terrain
+            if let Some(ui) = self.ui.as_mut() {
+                ui.mark_scene_modified();
+            }
+        }
+        if editor_result.inspector.water_changed {
+            self.undo_history.push_state(scene);
+            wgpu_state.water_needs_regeneration = true;
+            if let Some(ui) = self.ui.as_mut() {
+                ui.mark_scene_modified();
+            }
+        }
+
+        // Handle component changes from inspector
+        if editor_result.inspector.components_changed {
+            self.undo_history.push_state(scene);
+            if let Some(ui) = self.ui.as_mut() {
+                ui.mark_scene_modified();
+            }
+        }
+
+        // Handle undo/redo requests from Edit menu
+        if editor_result.undo_requested {
+            if self.undo_history.undo(scene) {
+                if let Some(ui) = self.ui.as_mut() {
+                    ui.selected_entity = None; // Selection may be invalid after undo
+                    ui.mark_scene_modified();
+                }
+                log::info!("Undo (remaining: {})", self.undo_history.undo_count());
+            }
+        }
+        if editor_result.redo_requested {
+            if self.undo_history.redo(scene) {
+                if let Some(ui) = self.ui.as_mut() {
+                    ui.selected_entity = None; // Selection may be invalid after redo
+                    ui.mark_scene_modified();
+                }
+                log::info!("Redo (remaining: {})", self.undo_history.redo_count());
+            }
+        }
+
+        // Clear undo history when scene is loaded or new scene created
+        if editor_result.scene_changed {
+            self.undo_history.clear();
+            log::info!("Undo history cleared (scene changed)");
+        }
 
         // Update buffers and render - egui_state borrow is ended
         {
@@ -1463,7 +1684,68 @@ impl ApplicationHandler for EditorApp {
             WindowEvent::MouseWheel { delta, .. } => {
                 self.viewport_controls.handle_mouse_wheel(*delta);
             }
+            WindowEvent::ModifiersChanged(new_modifiers) => {
+                self.modifiers = new_modifiers.state();
+            }
             _ => {}
+        }
+
+        // Handle keyboard shortcuts
+        if let WindowEvent::KeyboardInput {
+            event: KeyEvent {
+                state: ElementState::Pressed,
+                physical_key: PhysicalKey::Code(key_code),
+                ..
+            },
+            ..
+        } = event {
+            // Ctrl+D - Duplicate entity
+            if self.modifiers.control_key() && key_code == KeyCode::KeyD {
+                if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(new_id) = scene.duplicate_entity(entity_id) {
+                            ui.selected_entity = Some(new_id);
+                            ui.mark_scene_modified();
+                            log::info!("Duplicated entity {:?} -> {:?}", entity_id, new_id);
+                        }
+                    }
+                }
+            }
+            // Delete key - Delete selected entity
+            if key_code == KeyCode::Delete {
+                if let Some(scene) = &self.scene {
+                    self.undo_history.push_state(scene);
+                }
+                if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        scene.remove_entity(entity_id);
+                        ui.selected_entity = None;
+                        ui.mark_scene_modified();
+                        log::info!("Deleted entity {:?}", entity_id);
+                    }
+                }
+            }
+            // Ctrl+Z - Undo
+            if self.modifiers.control_key() && key_code == KeyCode::KeyZ && !self.modifiers.shift_key() {
+                if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                    if self.undo_history.undo(scene) {
+                        ui.selected_entity = None; // Selection may be invalid after undo
+                        ui.mark_scene_modified();
+                        log::info!("Undo (remaining: {})", self.undo_history.undo_count());
+                    }
+                }
+            }
+            // Ctrl+Y or Ctrl+Shift+Z - Redo
+            if (self.modifiers.control_key() && key_code == KeyCode::KeyY) ||
+               (self.modifiers.control_key() && self.modifiers.shift_key() && key_code == KeyCode::KeyZ) {
+                if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                    if self.undo_history.redo(scene) {
+                        ui.selected_entity = None; // Selection may be invalid after redo
+                        ui.mark_scene_modified();
+                        log::info!("Redo (remaining: {})", self.undo_history.redo_count());
+                    }
+                }
+            }
         }
 
         // Handle other window events

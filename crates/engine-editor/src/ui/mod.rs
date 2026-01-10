@@ -8,6 +8,21 @@ pub mod viewport;
 use egui::Context;
 use engine_scene::{entity::EntityId, scene::Scene};
 
+// Re-export types for use in main.rs
+pub use inspector::InspectorResult;
+pub use hierarchy::{HierarchyAction, HierarchyState};
+
+/// Combined result from all editor UI panels
+#[derive(Default)]
+pub struct EditorResult {
+    pub inspector: InspectorResult,
+    pub hierarchy: HierarchyAction,
+    pub scene_modified: bool,
+    pub undo_requested: bool,
+    pub redo_requested: bool,
+    pub scene_changed: bool, // True when scene loaded or new scene created
+}
+
 /// UI state for the editor
 pub struct EditorUi {
     pub selected_entity: Option<EntityId>,
@@ -26,6 +41,8 @@ pub struct EditorUi {
     pub current_scene_path: Option<String>,
     pub scene_modified: bool,
     pub exit_requested: bool,
+    // Hierarchy panel state
+    pub hierarchy_state: HierarchyState,
 }
 
 #[derive(Clone)]
@@ -60,6 +77,7 @@ impl EditorUi {
             current_scene_path: None,
             scene_modified: false,
             exit_requested: false,
+            hierarchy_state: HierarchyState::default(),
         }
     }
 
@@ -92,19 +110,26 @@ impl EditorUi {
         });
     }
 
-    /// Render the entire editor UI
-    pub fn render(&mut self, ctx: &Context, scene: &mut Scene) {
+    /// Render the entire editor UI and return change indicators
+    pub fn render(&mut self, ctx: &Context, scene: &mut Scene, can_undo: bool, can_redo: bool) -> EditorResult {
+        let mut result = EditorResult::default();
+
         // Menu bar
-        self.render_menu_bar(ctx, scene);
+        self.render_menu_bar(ctx, scene, can_undo, can_redo, &mut result);
 
         // Left panel - Hierarchy
         if self.show_hierarchy {
-            hierarchy::render_hierarchy_panel(ctx, scene, &mut self.selected_entity);
+            result.hierarchy = hierarchy::render_hierarchy_panel(
+                ctx,
+                scene,
+                &mut self.selected_entity,
+                &mut self.hierarchy_state,
+            );
         }
 
-        // Right panel - Inspector
+        // Right panel - Inspector (captures changes)
         if self.show_inspector {
-            inspector::render_inspector_panel(ctx, scene, &mut self.selected_entity);
+            result.inspector = inspector::render_inspector_panel(ctx, scene, &mut self.selected_entity);
         }
 
         // Bottom panel - Console
@@ -122,11 +147,11 @@ impl EditorUi {
         }
 
         if self.show_load_dialog {
-            self.render_load_dialog(ctx, scene);
+            self.render_load_dialog(ctx, scene, &mut result);
         }
 
         if self.show_new_scene_confirm {
-            self.render_new_scene_confirm(ctx, scene);
+            self.render_new_scene_confirm(ctx, scene, &mut result);
         }
 
         if self.show_exit_confirm {
@@ -136,9 +161,11 @@ impl EditorUi {
         if self.show_about_dialog {
             self.render_about_dialog(ctx);
         }
+
+        result
     }
 
-    fn render_menu_bar(&mut self, ctx: &Context, _scene: &mut Scene) {
+    fn render_menu_bar(&mut self, ctx: &Context, _scene: &mut Scene, can_undo: bool, can_redo: bool, result: &mut EditorResult) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -187,19 +214,29 @@ impl EditorUi {
                 });
 
                 ui.menu_button("Edit", |ui| {
-                    if ui.add(egui::Button::new("Undo").shortcut_text("Ctrl+Z")).clicked() {
-                        self.log_info("Undo (not implemented)".to_string());
+                    if ui.add_enabled(can_undo, egui::Button::new("Undo").shortcut_text("Ctrl+Z")).clicked() {
+                        result.undo_requested = true;
+                        ui.close();
                     }
-                    if ui.add(egui::Button::new("Redo").shortcut_text("Ctrl+Y")).clicked() {
-                        self.log_info("Redo (not implemented)".to_string());
+                    if ui.add_enabled(can_redo, egui::Button::new("Redo").shortcut_text("Ctrl+Y")).clicked() {
+                        result.redo_requested = true;
+                        ui.close();
                     }
 
                     ui.separator();
 
-                    if ui.button("Delete Selected").clicked() {
+                    let has_selection = self.selected_entity.is_some();
+                    if ui.add_enabled(has_selection, egui::Button::new("Duplicate").shortcut_text("Ctrl+D")).clicked() {
                         if let Some(entity_id) = self.selected_entity {
-                            self.log_info(format!("Delete entity {:?} (not implemented)", entity_id));
+                            result.hierarchy.duplicate_entity = Some(entity_id);
                         }
+                        ui.close();
+                    }
+                    if ui.add_enabled(has_selection, egui::Button::new("Delete").shortcut_text("Delete")).clicked() {
+                        if let Some(entity_id) = self.selected_entity {
+                            result.hierarchy.delete_entity = Some(entity_id);
+                        }
+                        ui.close();
                     }
                 });
 
@@ -303,7 +340,7 @@ impl EditorUi {
             });
     }
 
-    fn render_load_dialog(&mut self, ctx: &Context, scene: &mut Scene) {
+    fn render_load_dialog(&mut self, ctx: &Context, scene: &mut Scene, result: &mut EditorResult) {
         egui::Window::new("Load Scene")
             .collapsible(false)
             .resizable(false)
@@ -337,6 +374,7 @@ impl EditorUi {
                                 self.scene_modified = false;
                                 self.show_load_dialog = false;
                                 self.selected_entity = None;
+                                result.scene_changed = true; // Signal to clear undo history
                             }
                             Err(e) => {
                                 self.log_error(format!("Failed to load scene: {}", e));
@@ -351,7 +389,7 @@ impl EditorUi {
             });
     }
 
-    fn render_new_scene_confirm(&mut self, ctx: &Context, scene: &mut Scene) {
+    fn render_new_scene_confirm(&mut self, ctx: &Context, scene: &mut Scene, result: &mut EditorResult) {
         egui::Window::new("New Scene")
             .collapsible(false)
             .resizable(false)
@@ -377,6 +415,7 @@ impl EditorUi {
                         self.scene_modified = false;
                         self.selected_entity = None;
                         self.show_new_scene_confirm = false;
+                        result.scene_changed = true; // Signal to clear undo history
                     }
 
                     if ui.button("Cancel").clicked() {

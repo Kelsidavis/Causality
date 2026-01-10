@@ -149,6 +149,40 @@ impl Scene {
         self.next_id = 1;
     }
 
+    /// Duplicate an entity with all its components
+    /// Returns the new entity ID, or None if the entity doesn't exist
+    pub fn duplicate_entity(&mut self, entity_id: EntityId) -> Option<EntityId> {
+        // Get the entity to clone (need to clone data before mutating)
+        let entity = self.get_entity(entity_id)?;
+        let mut new_entity = entity.clone();
+        let parent_id = entity.parent;
+
+        // Assign new ID
+        let new_id = EntityId::new(self.next_id);
+        self.next_id += 1;
+        new_entity.id = new_id;
+
+        // Rename to indicate copy
+        new_entity.name = format!("{} (Copy)", new_entity.name);
+
+        // Clear children (don't duplicate hierarchy by default)
+        new_entity.children.clear();
+
+        // Insert into scene
+        self.entities.insert(new_id, new_entity);
+
+        // Add to same parent or root
+        if let Some(pid) = parent_id {
+            if let Some(parent) = self.entities.get_mut(&pid) {
+                parent.children.push(new_id);
+            }
+        } else {
+            self.root_entities.push(new_id);
+        }
+
+        Some(new_id)
+    }
+
     /// Convert scene to serializable format
     /// Note: Only core components (MeshRenderer, Camera, Light) are serialized.
     /// Physics components should be serialized separately using scene_with_extensions.
@@ -176,6 +210,9 @@ impl Scene {
             }
             if let Some(terrain_water) = entity.get_component::<TerrainWater>() {
                 components.push(SerializedComponent::TerrainWater(terrain_water.clone()));
+            }
+            if let Some(terrain_gen) = entity.get_component::<TerrainGenerator>() {
+                components.push(SerializedComponent::TerrainGenerator(terrain_gen.clone()));
             }
 
             serialized_entities.insert(
@@ -220,6 +257,7 @@ impl Scene {
                     SerializedComponent::ParticleEmitter(c) => entity.add_component(c),
                     SerializedComponent::Water(c) => entity.add_component(c),
                     SerializedComponent::TerrainWater(c) => entity.add_component(c),
+                    SerializedComponent::TerrainGenerator(c) => entity.add_component(c),
                     SerializedComponent::Generic { .. } => {
                         // Generic components are not deserialized at this level
                         // They should be handled by extension systems

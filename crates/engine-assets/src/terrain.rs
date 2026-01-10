@@ -149,6 +149,50 @@ impl HeightMap {
         }
     }
 
+    /// Generate terrain with a castle moat - flat ground with ring-shaped trench
+    pub fn generate_with_moat(config: &TerrainConfig, inner_radius: f64, outer_radius: f64, moat_depth: f64) -> Self {
+        let perlin = Perlin::new(config.seed);
+        let mut heights = Vec::with_capacity(config.width * config.depth);
+
+        for z in 0..config.depth {
+            for x in 0..config.width {
+                let nx = x as f64 / config.width as f64;
+                let nz = z as f64 / config.depth as f64;
+
+                // Distance from center (normalized 0-1 at edges)
+                let dx = (nx - 0.5) * 2.0;
+                let dz = (nz - 0.5) * 2.0;
+                let dist_from_center = (dx * dx + dz * dz).sqrt();
+
+                // Base terrain - flat with subtle noise
+                let mut height = 0.5; // Start at middle height
+
+                // Add very subtle noise for visual interest (outside moat only)
+                if dist_from_center > outer_radius {
+                    let noise_val = perlin.get([nx * config.frequency, nz * config.frequency]);
+                    height += noise_val * 0.05;
+                }
+
+                // Moat ring - trench between inner and outer radius
+                if dist_from_center >= inner_radius && dist_from_center < outer_radius {
+                    let moat_width = outer_radius - inner_radius;
+                    let t = (dist_from_center - inner_radius) / moat_width;
+                    // Smooth moat profile (deepest in middle)
+                    let moat_profile = (t * std::f64::consts::PI).sin();
+                    height -= moat_depth * moat_profile;
+                }
+
+                heights.push(height as f32 * config.height_scale);
+            }
+        }
+
+        Self {
+            width: config.width,
+            depth: config.depth,
+            heights,
+        }
+    }
+
     /// Get height at grid position
     pub fn get_height(&self, x: usize, z: usize) -> f32 {
         if x >= self.width || z >= self.depth {

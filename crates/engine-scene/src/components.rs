@@ -310,3 +310,62 @@ impl Default for TerrainWater {
 }
 
 impl_component!(TerrainWater);
+
+/// Terrain generator component - configures procedural terrain generation
+/// Parameters are stored in scene file and used to generate terrain at load time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerrainGenerator {
+    // Grid dimensions
+    pub width: usize,
+    pub depth: usize,
+    // World scale
+    pub scale: f32,
+    pub height_scale: f32,
+    // Noise parameters
+    pub seed: u32,
+    pub octaves: usize,
+    pub frequency: f64,
+    pub lacunarity: f64,
+    pub persistence: f64,
+    // Moat parameters (for castle-style terrain)
+    pub moat_enabled: bool,
+    pub moat_inner_radius: f64,
+    pub moat_outer_radius: f64,
+    pub moat_depth: f64,
+}
+
+impl TerrainGenerator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_moat(mut self, inner: f64, outer: f64, depth: f64) -> Self {
+        self.moat_enabled = true;
+        self.moat_inner_radius = inner;
+        self.moat_outer_radius = outer;
+        self.moat_depth = depth;
+        self
+    }
+}
+
+impl Default for TerrainGenerator {
+    fn default() -> Self {
+        Self {
+            width: 64,
+            depth: 64,
+            scale: 50.0,
+            height_scale: 5.0,
+            seed: 0,
+            octaves: 4,
+            frequency: 1.0,
+            lacunarity: 2.0,
+            persistence: 0.5,
+            moat_enabled: false,
+            moat_inner_radius: 0.2,
+            moat_outer_radius: 0.35,
+            moat_depth: 0.5,
+        }
+    }
+}
+
+impl_component!(TerrainGenerator);
