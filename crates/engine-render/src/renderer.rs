@@ -49,14 +49,15 @@ impl Renderer {
             .await?;
 
         // Request device with push constants support
+        // Use adapter limits to ensure compatibility with the GPU
+        let mut limits = adapter.limits();
+        limits.max_push_constant_size = 128; // Enough for a 4x4 matrix (64 bytes) with headroom
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Main Device"),
                 required_features: wgpu::Features::PUSH_CONSTANTS,
-                required_limits: wgpu::Limits {
-                    max_push_constant_size: 128, // Enough for a 4x4 matrix (64 bytes) with headroom
-                    ..Default::default()
-                },
+                required_limits: limits,
                 memory_hints: Default::default(),
                 experimental_features: Default::default(),
                 trace: Default::default(),

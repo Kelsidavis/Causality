@@ -85,6 +85,20 @@ struct EditorApp {
     terrain_redo_stack: Vec<Vec<f32>>,
     /// Flag to track if we're currently sculpting (to save undo state on first brush stroke)
     terrain_sculpt_started: bool,
+    /// Player mode toggle - switches between editor camera and first-person player
+    player_mode: bool,
+    /// Player position in world space
+    player_position: glam::Vec3,
+    /// Player horizontal rotation (yaw) in radians
+    player_yaw: f32,
+    /// Player vertical rotation (pitch) in radians
+    player_pitch: f32,
+    /// Player movement velocity
+    player_velocity: glam::Vec3,
+    /// Movement key states: [forward, backward, left, right]
+    movement_keys: [bool; 4],
+    /// Last mouse position for calculating delta (workaround for broken cursor lock)
+    last_mouse_pos: Option<(f64, f64)>,
 }
 
 struct EguiState {
@@ -273,6 +287,13 @@ impl EditorApp {
             terrain_undo_stack: Vec::new(),
             terrain_redo_stack: Vec::new(),
             terrain_sculpt_started: false,
+            player_mode: false,
+            player_position: glam::Vec3::new(0.0, 5.0, 10.0),
+            player_yaw: 0.0,
+            player_pitch: 0.0,
+            player_velocity: glam::Vec3::ZERO,
+            movement_keys: [false; 4],
+            last_mouse_pos: None,
         }
     }
 
@@ -918,12 +939,64 @@ impl EditorApp {
             }
         }
 
-        // Update camera from viewport controls
-        self.viewport_controls.update_camera(camera);
+        // Update camera based on mode (player or editor)
+        if self.player_mode {
+            // Player mode: first-person camera and WASD movement
 
-        // Update camera info in UI for status bar
-        if let Some(ui) = &mut self.ui {
-            ui.update_camera_info(camera.position, self.viewport_controls.orbit_distance);
+            // Calculate movement direction from keys
+            let mut move_dir = glam::Vec3::ZERO;
+            if self.movement_keys[0] { move_dir.z += 1.0; } // W - forward
+            if self.movement_keys[1] { move_dir.z -= 1.0; } // S - backward
+            if self.movement_keys[2] { move_dir.x -= 1.0; } // A - left
+            if self.movement_keys[3] { move_dir.x += 1.0; } // D - right
+
+            // Normalize movement direction
+            if move_dir.length_squared() > 0.0 {
+                move_dir = move_dir.normalize();
+            }
+
+            // Calculate forward and right vectors from yaw (ignore pitch for movement)
+            let forward = glam::Vec3::new(
+                self.player_yaw.sin(),
+                0.0,
+                -self.player_yaw.cos(),
+            );
+            let right = glam::Vec3::new(
+                (self.player_yaw + std::f32::consts::PI / 2.0).sin(),
+                0.0,
+                -(self.player_yaw + std::f32::consts::PI / 2.0).cos(),
+            );
+
+            // Apply movement
+            let move_speed = 10.0; // units per second
+            let movement = (forward * move_dir.z + right * move_dir.x) * move_speed * dt;
+            self.player_position += movement;
+
+            // Calculate camera look direction from yaw and pitch
+            // Standard FPS camera: yaw rotates around Y axis, pitch around right axis
+            let camera_forward = glam::Vec3::new(
+                self.player_yaw.sin() * self.player_pitch.cos(),
+                self.player_pitch.sin(),
+                -self.player_yaw.cos() * self.player_pitch.cos(),
+            );
+
+            // Update camera position and target
+            camera.position = self.player_position;
+            camera.target = self.player_position + camera_forward;
+            camera.up = glam::Vec3::Y;  // Always use world up for FPS camera
+
+            // Update camera info in UI for status bar
+            if let Some(ui) = &mut self.ui {
+                ui.update_camera_info(camera.position, 0.0);
+            }
+        } else {
+            // Editor mode: orbit camera controls
+            self.viewport_controls.update_camera(camera);
+
+            // Update camera info in UI for status bar
+            if let Some(ui) = &mut self.ui {
+                ui.update_camera_info(camera.position, self.viewport_controls.orbit_distance);
+            }
         }
 
         // Handle terrain sculpting (separate borrow scope for mutable access)
@@ -1940,8 +2013,8 @@ impl EditorApp {
             }
         }
 
-        // Render egui UI and capture editor changes
-        let (paint_jobs, textures_delta, screen_descriptor, editor_result) = {
+        // Render egui UI and capture editor changes (skip in player mode)
+        let (paint_jobs, textures_delta, screen_descriptor, editor_result) = if !self.player_mode {
             let ui = self.ui.as_mut().unwrap();
             let egui_state = self.egui_state.as_mut().unwrap();
             let can_undo = self.undo_history.can_undo();
@@ -1980,6 +2053,17 @@ impl EditorApp {
             }
 
             (paint_jobs, full_output.textures_delta, screen_descriptor, editor_result)
+        } else {
+            // In player mode, skip UI rendering entirely
+            (
+                Vec::new(),
+                egui::TexturesDelta::default(),
+                egui_wgpu::ScreenDescriptor {
+                    size_in_pixels: [wgpu_state.renderer.surface_config.width, wgpu_state.renderer.surface_config.height],
+                    pixels_per_point: window.scale_factor() as f32,
+                },
+                EditorResult::default()
+            )
         };
 
         // Handle entity creation from hierarchy panel
@@ -2289,25 +2373,33 @@ impl ApplicationHandler for EditorApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        // Let egui handle the event first
-        if let (Some(egui_state), Some(window)) = (&mut self.egui_state, &self.window) {
-            let response = egui_state.winit_state.on_window_event(
-                window,
-                &event,
-            );
-            if response.consumed {
-                return; // Event was consumed by egui, don't process further
+        // Let egui handle the event first (but not in player mode)
+        if !self.player_mode {
+            if let (Some(egui_state), Some(window)) = (&mut self.egui_state, &self.window) {
+                let response = egui_state.winit_state.on_window_event(
+                    window,
+                    &event,
+                );
+                if response.consumed {
+                    return; // Event was consumed by egui, don't process further
+                }
             }
         }
 
-        // Handle viewport controls (camera)
+        // Handle viewport controls (camera) - but not in player mode
+        if !self.player_mode {
+            match &event {
+                WindowEvent::MouseInput { state, button, .. } => {
+                    self.viewport_controls.handle_mouse_button(*button, *state);
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.viewport_controls.handle_mouse_motion(position.x as f32, position.y as f32);
+                }
+                _ => {}
+            }
+        }
+
         match &event {
-            WindowEvent::MouseInput { state, button, .. } => {
-                self.viewport_controls.handle_mouse_button(*button, *state);
-            }
-            WindowEvent::CursorMoved { position, .. } => {
-                self.viewport_controls.handle_mouse_motion(position.x as f32, position.y as f32);
-            }
             WindowEvent::MouseWheel { delta, .. } => {
                 // Shift + scroll adjusts brush size when in brush mode
                 if self.modifiers.shift_key() {
@@ -2324,12 +2416,36 @@ impl ApplicationHandler for EditorApp {
                         }
                     }
                 }
-                self.viewport_controls.handle_mouse_wheel(*delta);
+                // Only handle mouse wheel for viewport zoom when not in player mode
+                if !self.player_mode {
+                    self.viewport_controls.handle_mouse_wheel(*delta);
+                }
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {
                 self.modifiers = new_modifiers.state();
             }
             _ => {}
+        }
+
+        // Handle WASD movement keys for player mode (both press and release)
+        if let WindowEvent::KeyboardInput {
+            event: KeyEvent {
+                state,
+                physical_key: PhysicalKey::Code(key_code),
+                ..
+            },
+            ..
+        } = event {
+            if self.player_mode {
+                let pressed = state == ElementState::Pressed;
+                match key_code {
+                    KeyCode::KeyW => self.movement_keys[0] = pressed,
+                    KeyCode::KeyS => self.movement_keys[1] = pressed,
+                    KeyCode::KeyA => self.movement_keys[2] = pressed,
+                    KeyCode::KeyD => self.movement_keys[3] = pressed,
+                    _ => {}
+                }
+            }
         }
 
         // Handle keyboard shortcuts
@@ -2472,6 +2588,44 @@ impl ApplicationHandler for EditorApp {
                             }
                         }
                     }
+                }
+            }
+            // M - Toggle player mode
+            if key_code == KeyCode::KeyM && !self.modifiers.control_key() && !self.modifiers.shift_key() && !self.modifiers.alt_key() {
+                self.player_mode = !self.player_mode;
+                if self.player_mode {
+                    // Copy current editor camera position and orientation when entering player mode
+                    if let Some(camera) = &self.camera {
+                        self.player_position = camera.position;
+                        // Calculate yaw and pitch from current camera look direction
+                        let look_dir = (camera.target - camera.position).normalize();
+                        self.player_yaw = look_dir.x.atan2(-look_dir.z);
+                        self.player_pitch = look_dir.y.asin();
+                    }
+                    log::info!("Player mode enabled - Use WASD to move, mouse to look, Escape or M to exit");
+                    log::info!("Initial yaw: {:.3}, pitch: {:.3}", self.player_yaw, self.player_pitch);
+                    // Lock cursor to window when entering player mode
+                    if let Some(window) = &self.window {
+                        let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
+                        window.set_cursor_visible(false);
+                    }
+                } else {
+                    log::info!("Player mode disabled");
+                    // Release cursor when exiting player mode
+                    if let Some(window) = &self.window {
+                        let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+                        window.set_cursor_visible(true);
+                    }
+                }
+            }
+            // Escape - Exit player mode if active
+            if key_code == KeyCode::Escape && self.player_mode {
+                self.player_mode = false;
+                log::info!("Player mode disabled");
+                // Release cursor when exiting player mode
+                if let Some(window) = &self.window {
+                    let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+                    window.set_cursor_visible(true);
                 }
             }
             // [ - Select first child entity
@@ -2851,6 +3005,50 @@ impl ApplicationHandler for EditorApp {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        // Handle raw mouse motion for player camera control
+        if self.player_mode {
+            if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+                // Check if these are actual deltas or absolute positions
+                let (raw_x, raw_y) = delta;
+
+                // If values are huge (>1000), they're absolute positions, calculate delta
+                let (delta_x, delta_y) = if raw_x.abs() > 1000.0 || raw_y.abs() > 1000.0 {
+                    if let Some((last_x, last_y)) = self.last_mouse_pos {
+                        let dx = raw_x - last_x;
+                        let dy = raw_y - last_y;
+                        self.last_mouse_pos = Some((raw_x, raw_y));
+                        (dx, dy)
+                    } else {
+                        // First frame, no delta yet
+                        self.last_mouse_pos = Some((raw_x, raw_y));
+                        (0.0, 0.0)
+                    }
+                } else {
+                    // These are proper deltas
+                    (raw_x, raw_y)
+                };
+
+                // Mouse sensitivity
+                let sensitivity = 0.0002;
+
+                // Update yaw (horizontal) and pitch (vertical)
+                // Positive delta_x means mouse moved right, should rotate camera right (increase yaw)
+                self.player_yaw += delta_x as f32 * sensitivity;
+                self.player_pitch -= delta_y as f32 * sensitivity;
+
+                // Clamp pitch to prevent camera flipping and gimbal lock
+                let max_pitch = std::f32::consts::PI / 2.0 - 0.1;
+                self.player_pitch = self.player_pitch.clamp(-max_pitch, max_pitch);
+            }
         }
     }
 
