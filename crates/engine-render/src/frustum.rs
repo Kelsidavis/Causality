@@ -253,6 +253,40 @@ impl AABB {
             && self.min.z <= other.max.z
             && self.max.z >= other.min.z
     }
+
+    /// Ray-AABB intersection test using slab method
+    /// Returns Some(t) where t is the distance along the ray to the intersection point,
+    /// or None if there's no intersection
+    pub fn ray_intersect(&self, ray_origin: Vec3, ray_direction: Vec3) -> Option<f32> {
+        let inv_dir = Vec3::new(
+            1.0 / ray_direction.x,
+            1.0 / ray_direction.y,
+            1.0 / ray_direction.z,
+        );
+
+        let t1 = (self.min.x - ray_origin.x) * inv_dir.x;
+        let t2 = (self.max.x - ray_origin.x) * inv_dir.x;
+        let t3 = (self.min.y - ray_origin.y) * inv_dir.y;
+        let t4 = (self.max.y - ray_origin.y) * inv_dir.y;
+        let t5 = (self.min.z - ray_origin.z) * inv_dir.z;
+        let t6 = (self.max.z - ray_origin.z) * inv_dir.z;
+
+        let tmin = t1.min(t2).max(t3.min(t4)).max(t5.min(t6));
+        let tmax = t1.max(t2).min(t3.max(t4)).min(t5.max(t6));
+
+        // If tmax < 0, ray is intersecting AABB but behind origin
+        // If tmin > tmax, ray doesn't intersect AABB
+        if tmax < 0.0 || tmin > tmax {
+            return None;
+        }
+
+        // Return the closest intersection point (tmin if positive, otherwise tmax)
+        if tmin >= 0.0 {
+            Some(tmin)
+        } else {
+            Some(tmax)
+        }
+    }
 }
 
 #[cfg(test)]

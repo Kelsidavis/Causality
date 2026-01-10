@@ -15,6 +15,7 @@ use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody, BuoyancySys
 use engine_render::{
     camera::Camera,
     foliage_renderer::{FoliageRenderer, FoliageInstanceGpu, FoliageRenderData},
+    frustum::AABB,
     gpu_mesh::GpuVertex,
     material_manager::MaterialManager,
     mesh_manager::MeshManager,
@@ -184,6 +185,45 @@ fn raycast_terrain(
     }
 
     None
+}
+
+/// Pick an entity by raycasting against entity bounding boxes
+/// Returns the EntityId and distance of the closest entity hit, if any
+fn pick_entity(
+    ray_origin: Vec3,
+    ray_direction: Vec3,
+    scene: &Scene,
+) -> Option<(EntityId, f32)> {
+    let mut closest: Option<(EntityId, f32)> = None;
+
+    for entity in scene.entities() {
+        // Skip entities without mesh renderers (they have no visual representation)
+        if !entity.has_component::<MeshRenderer>() {
+            continue;
+        }
+
+        // Create bounding box from entity transform
+        // Use scale as half-extents for a rough bounding box
+        let pos = entity.transform.position;
+        let scale = entity.transform.scale;
+
+        // Create AABB centered at entity position with scale as half-extents
+        let aabb = AABB::from_center_extents(pos, scale);
+
+        // Test ray intersection
+        if let Some(t) = aabb.ray_intersect(ray_origin, ray_direction) {
+            // Check if this is closer than the current closest hit
+            if let Some((_, closest_t)) = closest {
+                if t < closest_t {
+                    closest = Some((entity.id, t));
+                }
+            } else {
+                closest = Some((entity.id, t));
+            }
+        }
+    }
+
+    closest
 }
 
 // Helper function to convert CPU mesh to GPU vertex format
@@ -1118,6 +1158,38 @@ impl EditorApp {
                         self.viewport_controls.brush_active = false;
                     }
                 }
+            }
+        }
+
+        // Handle entity selection by clicking in viewport (when in Select mode or brush panel hidden)
+        if let Some(ui) = &self.ui {
+            let in_select_mode = ui.brush_tool.mode == BrushMode::Select || !ui.show_brush_panel;
+            if in_select_mode && self.viewport_controls.brush_active {
+                // Get screen dimensions
+                let screen_width = wgpu_state.renderer.surface_config.width as f32;
+                let screen_height = wgpu_state.renderer.surface_config.height as f32;
+                let (mouse_x, mouse_y) = self.viewport_controls.current_mouse_pos;
+
+                // Convert screen position to ray
+                let (ray_origin, ray_direction) = camera.screen_to_ray(mouse_x, mouse_y, screen_width, screen_height);
+
+                // Try to pick an entity
+                if let Some((entity_id, _distance)) = pick_entity(ray_origin, ray_direction, scene) {
+                    if let Some(ui) = self.ui.as_mut() {
+                        ui.selected_entity = Some(entity_id);
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            log::info!("Selected entity: {}", entity.name);
+                        }
+                    }
+                } else {
+                    // Clicked on nothing - deselect
+                    if let Some(ui) = self.ui.as_mut() {
+                        ui.selected_entity = None;
+                    }
+                }
+
+                // Reset brush_active
+                self.viewport_controls.brush_active = false;
             }
         }
 

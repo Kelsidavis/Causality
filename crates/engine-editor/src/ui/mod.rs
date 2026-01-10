@@ -886,6 +886,14 @@ impl EditorUi {
                 ));
                 ui.separator();
 
+                // Selected entity indicator
+                if let Some(entity_id) = self.selected_entity {
+                    if let Some(entity) = scene.get_entity(entity_id) {
+                        ui.colored_label(egui::Color32::from_rgb(255, 200, 100), format!("Selected: {}", entity.name));
+                        ui.separator();
+                    }
+                }
+
                 // Brush mode indicator
                 if self.brush_tool.mode != BrushMode::Select {
                     let mode_text = match self.brush_tool.mode {
