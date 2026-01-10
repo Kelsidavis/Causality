@@ -1148,6 +1148,15 @@ impl EditorUi {
                     ui.label("Home");
                     ui.label("Reset Camera View");
                     ui.end_row();
+                    ui.label("Numpad 1");
+                    ui.label("Front View");
+                    ui.end_row();
+                    ui.label("Numpad 3");
+                    ui.label("Right View");
+                    ui.end_row();
+                    ui.label("Numpad 7");
+                    ui.label("Top View");
+                    ui.end_row();
                     ui.label("Right Mouse Drag");
                     ui.label("Orbit Camera");
                     ui.end_row();

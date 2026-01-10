@@ -2503,6 +2503,28 @@ impl ApplicationHandler for EditorApp {
                 self.viewport_controls.pan_offset = glam::Vec3::new(0.0, 5.0, 0.0);
                 log::info!("Camera view reset");
             }
+            // Numpad 1 - Front view
+            if key_code == KeyCode::Numpad1 {
+                self.viewport_controls.orbit_yaw = 0.0;
+                self.viewport_controls.orbit_pitch = 0.0;
+                log::info!("Front view");
+            }
+            // Numpad 3 - Right view
+            if key_code == KeyCode::Numpad3 {
+                self.viewport_controls.orbit_yaw = std::f32::consts::FRAC_PI_2;
+                self.viewport_controls.orbit_pitch = 0.0;
+                log::info!("Right view");
+            }
+            // Numpad 7 - Top view
+            if key_code == KeyCode::Numpad7 {
+                self.viewport_controls.orbit_yaw = 0.0;
+                self.viewport_controls.orbit_pitch = std::f32::consts::FRAC_PI_2 - 0.01;
+                log::info!("Top view");
+            }
+            // Numpad 5 - Toggle perspective/orthographic (just log for now)
+            if key_code == KeyCode::Numpad5 {
+                log::info!("Perspective view (orthographic not yet implemented)");
+            }
             // Delete - Delete selected entity
             if key_code == KeyCode::Delete {
                 if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {

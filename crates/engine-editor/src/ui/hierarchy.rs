@@ -320,6 +320,31 @@ fn render_entity_tree(
 
             let response = ui.selectable_label(is_selected, label_text);
 
+            // Tooltip with entity info
+            response.clone().on_hover_ui(|ui| {
+                ui.label(format!("ID: {:?}", entity_id));
+                if has_children {
+                    ui.label(format!("Children: {}", children.len()));
+                }
+                // Show component summary
+                let mut components: Vec<&str> = Vec::new();
+                use engine_scene::components::*;
+                if let Some(entity) = scene.get_entity(entity_id) {
+                    if entity.has_component::<MeshRenderer>() { components.push("Mesh"); }
+                    if entity.has_component::<Light>() { components.push("Light"); }
+                    if entity.has_component::<Camera>() { components.push("Camera"); }
+                    if entity.has_component::<ParticleEmitter>() { components.push("Particles"); }
+                    if entity.has_component::<Water>() { components.push("Water"); }
+                    if entity.has_component::<TerrainGenerator>() { components.push("Terrain"); }
+                    if entity.has_component::<Foliage>() { components.push("Foliage"); }
+                }
+                if !components.is_empty() {
+                    ui.label(format!("Components: {}", components.join(", ")));
+                }
+                ui.add_space(4.0);
+                ui.label("Double-click to rename");
+            });
+
             // Single click to select
             if response.clicked() {
                 *selected_entity = Some(entity_id);
