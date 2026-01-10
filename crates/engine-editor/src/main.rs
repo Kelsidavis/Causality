@@ -2358,6 +2358,16 @@ impl ApplicationHandler for EditorApp {
                     }
                 }
             }
+            // H - Toggle visibility of selected entity
+            if key_code == KeyCode::KeyH && !self.modifiers.control_key() {
+                if let Some(ui) = &mut self.ui {
+                    if let Some(entity_id) = ui.selected_entity {
+                        ui.toggle_entity_visibility(entity_id);
+                        let visible = ui.is_entity_visible(entity_id);
+                        log::info!("{} entity visibility", if visible { "Showing" } else { "Hiding" });
+                    }
+                }
+            }
             // Ctrl+C - Copy selected entity
             if self.modifiers.control_key() && key_code == KeyCode::KeyC {
                 if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {

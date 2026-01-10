@@ -1186,6 +1186,9 @@ impl EditorUi {
                     ui.label("F");
                     ui.label("Focus on Selected Entity");
                     ui.end_row();
+                    ui.label("H");
+                    ui.label("Toggle Entity Visibility");
+                    ui.end_row();
                     ui.label("Home");
                     ui.label("Reset Camera View");
                     ui.end_row();
