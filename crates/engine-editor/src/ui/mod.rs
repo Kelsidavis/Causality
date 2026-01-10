@@ -1168,6 +1168,9 @@ impl EditorUi {
                     ui.label("F2");
                     ui.label("Rename Selected Entity");
                     ui.end_row();
+                    ui.label("Delete");
+                    ui.label("Delete Selected Entity");
+                    ui.end_row();
                     ui.label("Double-click");
                     ui.label("Rename Entity in Hierarchy");
                     ui.end_row();

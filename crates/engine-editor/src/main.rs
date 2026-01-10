@@ -2180,6 +2180,17 @@ impl EditorApp {
             }
         }
 
+        // Update window title with scene name and modified indicator
+        if let (Some(window), Some(ui)) = (&self.window, &self.ui) {
+            let scene_name = ui.current_scene_path
+                .as_ref()
+                .and_then(|p| std::path::Path::new(p).file_stem())
+                .and_then(|s| s.to_str())
+                .unwrap_or("Untitled");
+            let modified = if ui.scene_modified { " *" } else { "" };
+            window.set_title(&format!("{}{} - Causality Engine Editor", scene_name, modified));
+        }
+
         // Present
         output.present();
 
@@ -2491,6 +2502,24 @@ impl ApplicationHandler for EditorApp {
                 self.viewport_controls.orbit_pitch = 0.4;
                 self.viewport_controls.pan_offset = glam::Vec3::new(0.0, 5.0, 0.0);
                 log::info!("Camera view reset");
+            }
+            // Delete - Delete selected entity
+            if key_code == KeyCode::Delete {
+                if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        // Don't delete if currently editing entity name
+                        if ui.hierarchy_state.editing_entity.is_none() {
+                            self.undo_history.push_state(scene);
+                            let entity_name = scene.get_entity(entity_id)
+                                .map(|e| e.name.clone())
+                                .unwrap_or_default();
+                            scene.remove_entity(entity_id);
+                            ui.selected_entity = None;
+                            ui.mark_scene_modified();
+                            log::info!("Deleted entity: {}", entity_name);
+                        }
+                    }
+                }
             }
             // Escape - Deselect entity or exit
             if key_code == KeyCode::Escape {
