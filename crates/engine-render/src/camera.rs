@@ -48,4 +48,23 @@ impl Camera {
     pub fn frustum(&self) -> Frustum {
         Frustum::from_view_projection(self.view_projection_matrix())
     }
+
+    /// Convert screen coordinates (pixels) to a world-space ray
+    /// Returns (ray_origin, ray_direction)
+    pub fn screen_to_ray(&self, screen_x: f32, screen_y: f32, screen_width: f32, screen_height: f32) -> (Vec3, Vec3) {
+        // Convert to normalized device coordinates (-1 to 1)
+        let ndc_x = (2.0 * screen_x / screen_width) - 1.0;
+        let ndc_y = 1.0 - (2.0 * screen_y / screen_height); // Y is flipped
+
+        // Get inverse matrices
+        let view_proj_inv = self.view_projection_matrix().inverse();
+
+        // Unproject near and far points
+        let near_point = view_proj_inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
+        let far_point = view_proj_inv.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
+
+        let direction = (far_point - near_point).normalize();
+
+        (self.position, direction)
+    }
 }

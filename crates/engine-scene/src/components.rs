@@ -369,3 +369,88 @@ impl Default for TerrainGenerator {
 }
 
 impl_component!(TerrainGenerator);
+
+/// A single foliage instance (tree, bush, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FoliageInstance {
+    /// World position of this instance
+    pub position: [f32; 3],
+    /// Y-axis rotation in radians
+    pub rotation_y: f32,
+    /// Uniform scale factor
+    pub scale: f32,
+}
+
+impl FoliageInstance {
+    pub fn new(position: [f32; 3]) -> Self {
+        Self {
+            position,
+            rotation_y: 0.0,
+            scale: 1.0,
+        }
+    }
+
+    pub fn with_rotation(mut self, rotation_y: f32) -> Self {
+        self.rotation_y = rotation_y;
+        self
+    }
+
+    pub fn with_scale(mut self, scale: f32) -> Self {
+        self.scale = scale;
+        self
+    }
+}
+
+/// Foliage component - holds instances of vegetation (trees, bushes, etc.)
+/// Uses GPU instancing for efficient rendering of many objects
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Foliage {
+    /// Type of vegetation mesh to use
+    pub vegetation_type: String,
+    /// All instances of this foliage type
+    pub instances: Vec<FoliageInstance>,
+    /// Whether this foliage casts shadows
+    pub cast_shadows: bool,
+    /// Color tint for the foliage (multiplied with mesh colors)
+    pub color_tint: [f32; 3],
+}
+
+impl Foliage {
+    pub fn new(vegetation_type: String) -> Self {
+        Self {
+            vegetation_type,
+            instances: Vec::new(),
+            cast_shadows: true,
+            color_tint: [1.0, 1.0, 1.0],
+        }
+    }
+
+    pub fn add_instance(&mut self, position: [f32; 3], rotation_y: f32, scale: f32) {
+        self.instances.push(FoliageInstance {
+            position,
+            rotation_y,
+            scale,
+        });
+    }
+
+    pub fn remove_instances_in_radius(&mut self, center: [f32; 3], radius: f32) {
+        let radius_sq = radius * radius;
+        self.instances.retain(|instance| {
+            let dx = instance.position[0] - center[0];
+            let dz = instance.position[2] - center[2];
+            dx * dx + dz * dz > radius_sq
+        });
+    }
+
+    pub fn instance_count(&self) -> usize {
+        self.instances.len()
+    }
+}
+
+impl Default for Foliage {
+    fn default() -> Self {
+        Self::new("vegetation_pine".to_string())
+    }
+}
+
+impl_component!(Foliage);

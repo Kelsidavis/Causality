@@ -228,6 +228,135 @@ impl HeightMap {
 
         h0 * (1.0 - fz) + h1 * fz
     }
+
+    /// Set height at grid position
+    pub fn set_height(&mut self, x: usize, z: usize, height: f32) {
+        if x < self.width && z < self.depth {
+            self.heights[z * self.width + x] = height;
+        }
+    }
+
+    /// Convert world coordinates to grid coordinates
+    pub fn world_to_grid(&self, world_x: f32, world_z: f32, scale: f32) -> (f32, f32) {
+        let grid_x = (world_x / scale) * self.width as f32 + (self.width as f32 * 0.5);
+        let grid_z = (world_z / scale) * self.depth as f32 + (self.depth as f32 * 0.5);
+        (grid_x, grid_z)
+    }
+
+    /// Apply a brush operation at world position
+    /// brush_mode: 0=raise, 1=lower, 2=smooth, 3=flatten
+    /// Returns true if any heights were modified
+    pub fn apply_brush(
+        &mut self,
+        world_x: f32,
+        world_z: f32,
+        scale: f32,
+        radius: f32,
+        strength: f32,
+        brush_mode: u8,
+    ) -> bool {
+        // Convert world position to grid position
+        let (center_x, center_z) = self.world_to_grid(world_x, world_z, scale);
+
+        // Convert radius from world units to grid units
+        let grid_radius = (radius / scale) * self.width as f32;
+
+        // Calculate affected grid cells
+        let min_x = ((center_x - grid_radius).floor() as i32).max(0) as usize;
+        let max_x = ((center_x + grid_radius).ceil() as i32).min(self.width as i32 - 1) as usize;
+        let min_z = ((center_z - grid_radius).floor() as i32).max(0) as usize;
+        let max_z = ((center_z + grid_radius).ceil() as i32).min(self.depth as i32 - 1) as usize;
+
+        // For flatten mode, get the center height first
+        let flatten_height = if brush_mode == 3 {
+            let cx = center_x.round() as usize;
+            let cz = center_z.round() as usize;
+            if cx < self.width && cz < self.depth {
+                self.get_height(cx, cz)
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        // For smooth mode, we need to pre-calculate smoothed values
+        let smooth_values = if brush_mode == 2 {
+            let mut values = Vec::new();
+            for z in min_z..=max_z {
+                for x in min_x..=max_x {
+                    let avg = self.get_average_height(x, z);
+                    values.push(avg);
+                }
+            }
+            values
+        } else {
+            Vec::new()
+        };
+
+        let mut modified = false;
+        let mut smooth_idx = 0;
+
+        for z in min_z..=max_z {
+            for x in min_x..=max_x {
+                let dx = x as f32 - center_x;
+                let dz = z as f32 - center_z;
+                let dist = (dx * dx + dz * dz).sqrt();
+
+                if dist <= grid_radius {
+                    // Smooth falloff (1 at center, 0 at edge)
+                    let falloff = 1.0 - (dist / grid_radius);
+                    let falloff = falloff * falloff; // Quadratic falloff for smoother edges
+
+                    let current_height = self.get_height(x, z);
+                    let delta = strength * falloff * 0.1; // Scale down for finer control
+
+                    let new_height = match brush_mode {
+                        0 => current_height + delta, // Raise
+                        1 => current_height - delta, // Lower
+                        2 => {
+                            // Smooth - blend toward average
+                            let avg = smooth_values[smooth_idx];
+                            current_height + (avg - current_height) * falloff * strength * 0.5
+                        }
+                        3 => {
+                            // Flatten - blend toward center height
+                            current_height + (flatten_height - current_height) * falloff * strength * 0.5
+                        }
+                        _ => current_height,
+                    };
+
+                    self.set_height(x, z, new_height);
+                    modified = true;
+                }
+
+                if brush_mode == 2 {
+                    smooth_idx += 1;
+                }
+            }
+        }
+
+        modified
+    }
+
+    /// Get average height of a cell and its neighbors (for smoothing)
+    fn get_average_height(&self, x: usize, z: usize) -> f32 {
+        let mut sum = 0.0;
+        let mut count = 0;
+
+        for dz in -1i32..=1 {
+            for dx in -1i32..=1 {
+                let nx = x as i32 + dx;
+                let nz = z as i32 + dz;
+                if nx >= 0 && nx < self.width as i32 && nz >= 0 && nz < self.depth as i32 {
+                    sum += self.get_height(nx as usize, nz as usize);
+                    count += 1;
+                }
+            }
+        }
+
+        if count > 0 { sum / count as f32 } else { 0.0 }
+    }
 }
 
 pub struct Terrain;

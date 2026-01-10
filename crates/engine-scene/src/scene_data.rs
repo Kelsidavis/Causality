@@ -18,6 +18,7 @@ pub enum SerializedComponent {
     Water(Water),
     TerrainWater(TerrainWater),
     TerrainGenerator(TerrainGenerator),
+    Foliage(Foliage),
     // Generic component data for extensibility (e.g., physics components)
     Generic {
         component_type: String,

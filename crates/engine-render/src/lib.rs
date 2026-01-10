@@ -5,6 +5,7 @@ pub const MSAA_SAMPLE_COUNT: u32 = 4;
 
 pub mod camera;
 pub mod culling;
+pub mod foliage_renderer;
 pub mod frustum;
 pub mod gpu_material;
 pub mod gpu_mesh;
@@ -22,6 +23,7 @@ pub mod water;
 
 pub use camera::Camera;
 pub use culling::{CullingStats, CullingSystem, Renderable, RenderableId, VisibilityResult};
+pub use foliage_renderer::{FoliageInstanceGpu, FoliageRenderData, FoliageRenderer};
 pub use frustum::{Frustum, Plane, AABB};
 pub use gpu_material::{GpuMaterial, MaterialHandle, MaterialUniforms};
 pub use gpu_mesh::{GpuMesh, GpuVertex, MeshHandle};

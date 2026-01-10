@@ -8,6 +8,7 @@ pub mod material;
 pub mod mesh;
 pub mod terrain;
 pub mod texture;
+pub mod vegetation;
 pub mod water_fill;
 
 pub use hot_reload::{HotReloadWatcher, ReloadEvent};
@@ -17,4 +18,5 @@ pub use material::{AlphaMode, Material};
 pub use mesh::{Mesh, Vertex};
 pub use terrain::{HeightMap, Terrain, TerrainConfig};
 pub use texture::{Texture, TextureFormat};
+pub use vegetation::{VegetationType, TreeConfig, BushConfig, generate_tree, generate_bush};
 pub use water_fill::{compute_water_fill, generate_water_mesh, ComputedWaterBody, WaterFillResult};

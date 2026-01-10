@@ -20,6 +20,10 @@ pub struct HierarchyState {
     pub show_delete_confirm: bool,
     pub entity_to_delete: Option<EntityId>,
     pub context_menu_entity: Option<EntityId>,
+    /// Search filter for entities
+    pub search_filter: String,
+    /// Expanded entity nodes (for tree view)
+    pub expanded_entities: std::collections::HashSet<EntityId>,
 }
 
 impl Default for HierarchyState {
@@ -31,6 +35,8 @@ impl Default for HierarchyState {
             show_delete_confirm: false,
             entity_to_delete: None,
             context_menu_entity: None,
+            search_filter: String::new(),
+            expanded_entities: std::collections::HashSet::new(),
         }
     }
 }
@@ -47,6 +53,30 @@ pub fn render_hierarchy_panel(
         .default_width(250.0)
         .show(ctx, |ui| {
             ui.heading("Hierarchy");
+            ui.separator();
+
+            // Search box
+            ui.horizontal(|ui| {
+                ui.label("Search:");
+                let response = ui.text_edit_singleline(&mut state.search_filter);
+                if response.changed() && !state.search_filter.is_empty() {
+                    // Auto-expand all matches when searching
+                    expand_matching_entities(scene, &state.search_filter, &mut state.expanded_entities);
+                }
+                if ui.small_button("X").clicked() {
+                    state.search_filter.clear();
+                }
+            });
+
+            // Show entity count and match count
+            let total_count = scene.entity_count();
+            if state.search_filter.is_empty() {
+                ui.label(format!("{} entities", total_count));
+            } else {
+                let match_count = count_matching_entities(scene, &state.search_filter);
+                ui.label(format!("{} / {} entities", match_count, total_count));
+            }
+
             ui.separator();
 
             ScrollArea::vertical().show(ui, |ui| {
@@ -166,21 +196,51 @@ fn render_entity_tree(
         return;
     };
 
+    // Check if this entity or any descendants match the search filter
+    let search_filter = state.search_filter.to_lowercase();
+    let matches_search = search_filter.is_empty() || entity_matches_search(scene, entity_id, &search_filter);
+
+    // Skip rendering if doesn't match search and no children match
+    if !matches_search {
+        return;
+    }
+
     let is_selected = *selected_entity == Some(entity_id);
     let has_children = !entity.children.is_empty();
     let entity_name = entity.name.clone();
     let children = entity.children.clone();
+    let is_expanded = state.expanded_entities.contains(&entity_id);
+
+    // Check if entity name directly matches
+    let name_matches = entity_name.to_lowercase().contains(&search_filter);
 
     // Horizontal layout for indent + label
     ui.horizontal(|ui| {
         // Indentation for hierarchy depth
         ui.add_space(depth as f32 * 16.0);
 
-        // Create a selectable label with icon
-        let icon = if has_children { ">" } else { "-" };
-        let label = format!("{} {}", icon, entity_name);
+        // Expand/collapse button for entities with children
+        if has_children {
+            let expand_icon = if is_expanded { "v" } else { ">" };
+            if ui.small_button(expand_icon).clicked() {
+                if is_expanded {
+                    state.expanded_entities.remove(&entity_id);
+                } else {
+                    state.expanded_entities.insert(entity_id);
+                }
+            }
+        } else {
+            ui.add_space(20.0); // Space for alignment
+        }
 
-        let response = ui.selectable_label(is_selected, label);
+        // Highlight matching entities
+        let label_text = if !search_filter.is_empty() && name_matches {
+            egui::RichText::new(&entity_name).color(egui::Color32::YELLOW)
+        } else {
+            egui::RichText::new(&entity_name)
+        };
+
+        let response = ui.selectable_label(is_selected, label_text);
         if response.clicked() {
             *selected_entity = Some(entity_id);
         }
@@ -198,6 +258,17 @@ fn render_entity_tree(
                 ui.close_menu();
             }
             ui.separator();
+            if has_children {
+                if ui.button("Expand All").clicked() {
+                    expand_all_children(scene, entity_id, &mut state.expanded_entities);
+                    ui.close_menu();
+                }
+                if ui.button("Collapse All").clicked() {
+                    collapse_all_children(scene, entity_id, &mut state.expanded_entities);
+                    ui.close_menu();
+                }
+                ui.separator();
+            }
             if ui.button("Delete").clicked() {
                 state.show_delete_confirm = true;
                 state.entity_to_delete = Some(entity_id);
@@ -223,8 +294,8 @@ fn render_entity_tree(
         });
     });
 
-    // Render children
-    if has_children {
+    // Render children if expanded (or if searching and children match)
+    if has_children && (is_expanded || !search_filter.is_empty()) {
         for child_id in children {
             render_entity_tree(ui, scene, child_id, selected_entity, state, action, depth + 1);
         }
@@ -242,4 +313,76 @@ fn is_descendant(scene: &Scene, entity_id: EntityId, potential_parent: EntityId)
         }
     }
     false
+}
+
+/// Check if an entity or any of its descendants match the search filter
+fn entity_matches_search(scene: &Scene, entity_id: EntityId, search_filter: &str) -> bool {
+    if let Some(entity) = scene.get_entity(entity_id) {
+        // Check if entity name matches
+        if entity.name.to_lowercase().contains(search_filter) {
+            return true;
+        }
+        // Check children
+        for child_id in &entity.children {
+            if entity_matches_search(scene, *child_id, search_filter) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Count entities matching the search filter
+fn count_matching_entities(scene: &Scene, search_filter: &str) -> usize {
+    let filter = search_filter.to_lowercase();
+    scene.entities()
+        .filter(|e| e.name.to_lowercase().contains(&filter))
+        .count()
+}
+
+/// Expand all parent entities of matching entities
+fn expand_matching_entities(
+    scene: &Scene,
+    search_filter: &str,
+    expanded: &mut std::collections::HashSet<EntityId>,
+) {
+    let filter = search_filter.to_lowercase();
+    for entity in scene.entities() {
+        if entity.name.to_lowercase().contains(&filter) {
+            // Expand all parents of this entity
+            let mut current = entity.parent;
+            while let Some(parent_id) = current {
+                expanded.insert(parent_id);
+                current = scene.get_entity(parent_id).and_then(|e| e.parent);
+            }
+        }
+    }
+}
+
+/// Expand all children recursively
+fn expand_all_children(
+    scene: &Scene,
+    entity_id: EntityId,
+    expanded: &mut std::collections::HashSet<EntityId>,
+) {
+    expanded.insert(entity_id);
+    if let Some(entity) = scene.get_entity(entity_id) {
+        for child_id in &entity.children {
+            expand_all_children(scene, *child_id, expanded);
+        }
+    }
+}
+
+/// Collapse all children recursively
+fn collapse_all_children(
+    scene: &Scene,
+    entity_id: EntityId,
+    expanded: &mut std::collections::HashSet<EntityId>,
+) {
+    expanded.remove(&entity_id);
+    if let Some(entity) = scene.get_entity(entity_id) {
+        for child_id in &entity.children {
+            collapse_all_children(scene, *child_id, expanded);
+        }
+    }
 }

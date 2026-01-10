@@ -7,11 +7,16 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 pub struct ViewportControls {
     pub orbit_active: bool,
     pub pan_active: bool,
+    pub brush_active: bool,  // Left mouse for brush (just pressed)
+    pub brush_held: bool,    // Left mouse being held (for continuous sculpting)
     pub last_mouse_pos: Option<(f32, f32)>,
+    pub current_mouse_pos: (f32, f32),
     pub orbit_distance: f32,
     pub orbit_pitch: f32,
     pub orbit_yaw: f32,
     pub pan_offset: Vec3,
+    /// Last position where terrain was modified (to throttle updates)
+    pub last_terrain_sculpt_pos: Option<(f32, f32)>,
 }
 
 impl ViewportControls {
@@ -19,16 +24,30 @@ impl ViewportControls {
         Self {
             orbit_active: false,
             pan_active: false,
+            brush_active: false,
+            brush_held: false,
             last_mouse_pos: None,
+            current_mouse_pos: (0.0, 0.0),
             orbit_distance: 15.0,
             orbit_pitch: 30.0_f32.to_radians(),
             orbit_yaw: 45.0_f32.to_radians(),
             pan_offset: Vec3::ZERO,
+            last_terrain_sculpt_pos: None,
         }
     }
 
     pub fn handle_mouse_button(&mut self, button: MouseButton, state: ElementState) {
         match button {
+            MouseButton::Left => {
+                let was_held = self.brush_held;
+                self.brush_held = state == ElementState::Pressed;
+                // brush_active is true only on the frame when button is first pressed
+                self.brush_active = state == ElementState::Pressed && !was_held;
+                // Clear last sculpt position when button is released
+                if state == ElementState::Released {
+                    self.last_terrain_sculpt_pos = None;
+                }
+            }
             MouseButton::Right => {
                 self.orbit_active = state == ElementState::Pressed;
                 if state == ElementState::Released {
@@ -46,6 +65,7 @@ impl ViewportControls {
     }
 
     pub fn handle_mouse_motion(&mut self, x: f32, y: f32) {
+        self.current_mouse_pos = (x, y);
         if let Some((last_x, last_y)) = self.last_mouse_pos {
             let delta_x = x - last_x;
             let delta_y = y - last_y;

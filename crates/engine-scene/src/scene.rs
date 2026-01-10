@@ -214,6 +214,9 @@ impl Scene {
             if let Some(terrain_gen) = entity.get_component::<TerrainGenerator>() {
                 components.push(SerializedComponent::TerrainGenerator(terrain_gen.clone()));
             }
+            if let Some(foliage) = entity.get_component::<Foliage>() {
+                components.push(SerializedComponent::Foliage(foliage.clone()));
+            }
 
             serialized_entities.insert(
                 *id,
@@ -258,6 +261,7 @@ impl Scene {
                     SerializedComponent::Water(c) => entity.add_component(c),
                     SerializedComponent::TerrainWater(c) => entity.add_component(c),
                     SerializedComponent::TerrainGenerator(c) => entity.add_component(c),
+                    SerializedComponent::Foliage(c) => entity.add_component(c),
                     SerializedComponent::Generic { .. } => {
                         // Generic components are not deserialized at this level
                         // They should be handled by extension systems

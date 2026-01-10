@@ -8,12 +8,13 @@ mod undo;
 use anyhow::Result;
 use undo::UndoHistory;
 use clap::Parser;
-use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent, HeightMap, TerrainConfig, Terrain, compute_water_fill, generate_water_mesh};
+use engine_assets::{manager::{AssetHandle, AssetManager}, material::Material, mesh::Mesh, texture::Texture, HotReloadWatcher, ReloadEvent, HeightMap, TerrainConfig, Terrain, compute_water_fill, generate_water_mesh, vegetation::VegetationType};
 use wgpu::util::DeviceExt;
 use engine_audio::AudioSystem;
 use engine_physics::{Collider, PhysicsSync, PhysicsWorld, RigidBody, BuoyancySystem, WaterVolume};
 use engine_render::{
     camera::Camera,
+    foliage_renderer::{FoliageRenderer, FoliageInstanceGpu, FoliageRenderData},
     gpu_mesh::GpuVertex,
     material_manager::MaterialManager,
     mesh_manager::MeshManager,
@@ -26,7 +27,7 @@ use engine_render::{
     water::WaterRenderer,
 };
 use engine_scene::{
-    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water, TerrainWater, WaterBody, TerrainGenerator},
+    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water, TerrainWater, WaterBody, TerrainGenerator, Foliage, FoliageInstance},
     entity::EntityId,
     scene::Scene,
     transform::Transform,
@@ -34,7 +35,7 @@ use engine_scene::{
 use engine_scripting::{AudioCommand, AudioCommandQueue, Script, ScriptSystem};
 use glam::{Quat, Vec3, Vec4};
 use std::sync::{Arc, Mutex};
-use ui::{viewport::ViewportControls, EditorUi, EditorResult};
+use ui::{viewport::ViewportControls, EditorUi, EditorResult, BrushMode};
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -76,6 +77,13 @@ struct EditorApp {
     scene_file_path: Option<String>,
     modifiers: winit::keyboard::ModifiersState,
     undo_history: UndoHistory,
+    /// Clipboard for copy/paste of entities
+    clipboard: Option<engine_scene::scene_data::SerializedEntity>,
+    /// Terrain heightmap undo stack
+    terrain_undo_stack: Vec<Vec<f32>>,
+    terrain_redo_stack: Vec<Vec<f32>>,
+    /// Flag to track if we're currently sculpting (to save undo state on first brush stroke)
+    terrain_sculpt_started: bool,
 }
 
 struct EguiState {
@@ -104,6 +112,8 @@ struct WgpuState {
     particle_renderer: Option<ParticleRenderer>,
     particle_systems: std::collections::HashMap<EntityId, engine_particles::ParticleSystem>,
     particle_compute_pipelines: std::collections::HashMap<EntityId, engine_particles::ParticleComputePipeline>,
+    /// Foliage renderer for instanced vegetation
+    foliage_renderer: Option<FoliageRenderer>,
     /// Terrain heightmap for terrain-aware water
     terrain_heightmap: Option<HeightMap>,
     terrain_config: Option<TerrainConfig>,
@@ -125,6 +135,56 @@ struct TerrainWaterBodyInfo {
 
 // Uniforms and push constants now handled by renderer
 // No need to redefine here since render_mesh handles it
+
+/// Raycast against terrain heightmap to find hit point
+/// Returns Some(hit_position) if the ray intersects the terrain
+fn raycast_terrain(
+    ray_origin: Vec3,
+    ray_direction: Vec3,
+    heightmap: &HeightMap,
+    config: &TerrainConfig,
+) -> Option<Vec3> {
+    // Step along the ray
+    let step_size = 0.5;
+    let max_distance = 200.0;
+
+    let mut t = 0.0;
+    let mut prev_point = ray_origin;
+    let mut prev_height = heightmap.sample_height(prev_point.x, prev_point.z, config.scale);
+    let mut prev_above = prev_point.y > prev_height;
+
+    while t < max_distance {
+        t += step_size;
+        let point = ray_origin + ray_direction * t;
+
+        // Sample terrain height at this XZ position
+        let terrain_height = heightmap.sample_height(point.x, point.z, config.scale);
+
+        let above = point.y > terrain_height;
+
+        // Check if we crossed the terrain surface
+        if prev_above && !above {
+            // Linear interpolation to find more precise hit point
+            let blend = (prev_point.y - prev_height) / ((prev_point.y - prev_height) + (terrain_height - point.y));
+            let hit_point = prev_point + (point - prev_point) * blend;
+
+            // Clamp to terrain bounds
+            let half_width = (config.width as f32 * config.scale) / 2.0;
+            let half_depth = (config.depth as f32 * config.scale) / 2.0;
+            if hit_point.x >= -half_width && hit_point.x <= half_width
+                && hit_point.z >= -half_depth && hit_point.z <= half_depth
+            {
+                return Some(hit_point);
+            }
+        }
+
+        prev_point = point;
+        prev_height = terrain_height;
+        prev_above = above;
+    }
+
+    None
+}
 
 // Helper function to convert CPU mesh to GPU vertex format
 fn convert_mesh_to_gpu(mesh: &Mesh) -> Vec<GpuVertex> {
@@ -169,6 +229,10 @@ impl EditorApp {
             file_ipc: Some(file_ipc::FileIpcHandler::new()),
             scene_file_path,
             undo_history: UndoHistory::new(50),
+            clipboard: None,
+            terrain_undo_stack: Vec::new(),
+            terrain_redo_stack: Vec::new(),
+            terrain_sculpt_started: false,
         }
     }
 
@@ -480,6 +544,20 @@ impl EditorApp {
             engine_render::particle_renderer::ParticleBlendMode::Alpha,
         ).ok();
 
+        // Create foliage renderer for instanced vegetation
+        let foliage_renderer = FoliageRenderer::new(
+            &renderer.device,
+            renderer.surface_config.format,
+        ).ok();
+
+        // Generate and upload vegetation meshes
+        for veg_type in VegetationType::all() {
+            let mesh = veg_type.generate_mesh();
+            let gpu_vertices = convert_mesh_to_gpu(&mesh);
+            mesh_manager.upload_mesh(&renderer.device, veg_type.mesh_name().to_string(), &gpu_vertices, &mesh.indices);
+            log::info!("Generated vegetation mesh '{}' with {} vertices", veg_type.mesh_name(), mesh.vertices.len());
+        }
+
         // Create water renderer
         let water_renderer = if let Some(ref shadow_map) = shadow_map {
             let shadow_sampling_layout = ShadowMap::create_sampling_bind_group_layout(&renderer.device);
@@ -514,6 +592,7 @@ impl EditorApp {
             particle_renderer,
             particle_systems: std::collections::HashMap::new(),
             particle_compute_pipelines: std::collections::HashMap::new(),
+            foliage_renderer,
             terrain_heightmap,
             terrain_config,
             terrain_water_bodies,
@@ -801,6 +880,246 @@ impl EditorApp {
 
         // Update camera from viewport controls
         self.viewport_controls.update_camera(camera);
+
+        // Update camera info in UI for status bar
+        if let Some(ui) = &mut self.ui {
+            ui.update_camera_info(camera.position, self.viewport_controls.orbit_distance);
+        }
+
+        // Handle terrain sculpting (separate borrow scope for mutable access)
+        if let Some(ui) = &self.ui {
+            if ui.brush_tool.mode.is_terrain_mode() && self.viewport_controls.brush_held {
+                let brush_tool = ui.brush_tool.clone();
+
+                // Save undo state when starting to sculpt (first brush stroke)
+                if !self.terrain_sculpt_started {
+                    if let Some(ref heightmap) = wgpu_state.terrain_heightmap {
+                        // Save current heightmap state for undo
+                        self.terrain_undo_stack.push(heightmap.heights.clone());
+                        // Limit undo stack size
+                        if self.terrain_undo_stack.len() > 20 {
+                            self.terrain_undo_stack.remove(0);
+                        }
+                        // Clear redo stack on new edit
+                        self.terrain_redo_stack.clear();
+                    }
+                    self.terrain_sculpt_started = true;
+                }
+
+                // Get screen dimensions
+                let screen_width = wgpu_state.renderer.surface_config.width as f32;
+                let screen_height = wgpu_state.renderer.surface_config.height as f32;
+                let (mouse_x, mouse_y) = self.viewport_controls.current_mouse_pos;
+
+                // Convert screen position to ray
+                let (ray_origin, ray_direction) = camera.screen_to_ray(mouse_x, mouse_y, screen_width, screen_height);
+
+                if let (Some(ref mut heightmap), Some(ref config)) = (&mut wgpu_state.terrain_heightmap, &wgpu_state.terrain_config) {
+                    if let Some(hit_point) = raycast_terrain(ray_origin, ray_direction, heightmap, config) {
+                        if let Some(terrain_mode) = brush_tool.mode.terrain_mode_code() {
+                            // Check if we should apply (throttle to avoid too many updates)
+                            let should_sculpt = if let Some((last_x, last_z)) = self.viewport_controls.last_terrain_sculpt_pos {
+                                let dx = hit_point.x - last_x;
+                                let dz = hit_point.z - last_z;
+                                let dist = (dx * dx + dz * dz).sqrt();
+                                // Only apply if moved more than 1/4 of brush radius
+                                dist > brush_tool.radius * 0.25
+                            } else {
+                                true
+                            };
+
+                            if should_sculpt {
+                                let modified = heightmap.apply_brush(
+                                    hit_point.x,
+                                    hit_point.z,
+                                    config.scale,
+                                    brush_tool.radius,
+                                    brush_tool.terrain_strength,
+                                    terrain_mode,
+                                );
+
+                                if modified {
+                                    // Regenerate terrain mesh
+                                    let terrain_mesh = Terrain::generate_mesh_from_heightmap(heightmap, config);
+                                    let gpu_vertices = convert_mesh_to_gpu(&terrain_mesh);
+                                    wgpu_state.mesh_manager.upload_mesh(
+                                        &wgpu_state.renderer.device,
+                                        "terrain".to_string(),
+                                        &gpu_vertices,
+                                        &terrain_mesh.indices,
+                                    );
+
+                                    // Update last sculpt position
+                                    self.viewport_controls.last_terrain_sculpt_pos = Some((hit_point.x, hit_point.z));
+
+                                    // Mark scene as modified
+                                    if let Some(ui) = self.ui.as_mut() {
+                                        ui.mark_scene_modified();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Reset sculpt started flag when not sculpting
+                self.terrain_sculpt_started = false;
+            }
+        }
+
+        // Handle vegetation brush tool placement (separate borrow scope for immutable access)
+        if let Some(ui) = &self.ui {
+            if ui.brush_tool.mode.is_vegetation_mode() && self.viewport_controls.brush_active {
+                // Get screen dimensions
+                let screen_width = wgpu_state.renderer.surface_config.width as f32;
+                let screen_height = wgpu_state.renderer.surface_config.height as f32;
+                let (mouse_x, mouse_y) = self.viewport_controls.current_mouse_pos;
+
+                // Convert screen position to ray
+                let (ray_origin, ray_direction) = camera.screen_to_ray(mouse_x, mouse_y, screen_width, screen_height);
+
+                // Raycast to terrain
+                if let (Some(ref heightmap), Some(ref config)) = (&wgpu_state.terrain_heightmap, &wgpu_state.terrain_config) {
+                    if let Some(hit_point) = raycast_terrain(ray_origin, ray_direction, heightmap, config) {
+                        let brush_tool = ui.brush_tool.clone();
+                        // ui borrow ends here, brush_tool is a clone
+
+                        match brush_tool.mode {
+                            BrushMode::Place => {
+                                // Get vegetation mesh name
+                                let veg_mesh_name = match brush_tool.vegetation_type {
+                                    crate::ui::VegetationType::PineTree => "vegetation_pine",
+                                    crate::ui::VegetationType::OakTree => "vegetation_oak",
+                                    crate::ui::VegetationType::Bush => "vegetation_bush",
+                                    crate::ui::VegetationType::Shrub => "vegetation_shrub",
+                                };
+
+                                // Find or create foliage entity for this vegetation type
+                                let mut foliage_entity_id = None;
+                                for entity in scene.entities() {
+                                    if let Some(foliage) = entity.get_component::<Foliage>() {
+                                        if foliage.vegetation_type == veg_mesh_name {
+                                            foliage_entity_id = Some(entity.id);
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                let entity_id = if let Some(id) = foliage_entity_id {
+                                    id
+                                } else {
+                                    // Create new foliage entity
+                                    let new_id = scene.create_entity(format!("Foliage - {}", brush_tool.vegetation_type.name()));
+                                    if let Some(entity) = scene.get_entity_mut(new_id) {
+                                        entity.add_component(Foliage {
+                                            vegetation_type: veg_mesh_name.to_string(),
+                                            instances: Vec::new(),
+                                            cast_shadows: true,
+                                            color_tint: [1.0, 1.0, 1.0],
+                                        });
+                                    }
+                                    new_id
+                                };
+
+                                // Add instances based on brush settings
+                                if let Some(entity) = scene.get_entity_mut(entity_id) {
+                                    if let Some(foliage) = entity.get_component_mut::<Foliage>() {
+                                        // Place instances within brush radius
+                                        let instance_count = brush_tool.density.ceil() as usize;
+                                        let mut rng_seed = (hit_point.x * 1000.0 + hit_point.z * 100.0) as u64;
+
+                                        for _ in 0..instance_count {
+                                            // Simple pseudo-random within radius
+                                            rng_seed = rng_seed.wrapping_mul(1103515245).wrapping_add(12345);
+                                            let r1 = ((rng_seed >> 16) & 0xFFFF) as f32 / 65535.0;
+                                            rng_seed = rng_seed.wrapping_mul(1103515245).wrapping_add(12345);
+                                            let r2 = ((rng_seed >> 16) & 0xFFFF) as f32 / 65535.0;
+                                            rng_seed = rng_seed.wrapping_mul(1103515245).wrapping_add(12345);
+                                            let r3 = ((rng_seed >> 16) & 0xFFFF) as f32 / 65535.0;
+                                            rng_seed = rng_seed.wrapping_mul(1103515245).wrapping_add(12345);
+                                            let r4 = ((rng_seed >> 16) & 0xFFFF) as f32 / 65535.0;
+
+                                            // Random offset within radius (uniform disk distribution)
+                                            let angle = r1 * std::f32::consts::TAU;
+                                            let dist = (r2.sqrt()) * brush_tool.radius;
+                                            let offset_x = angle.cos() * dist;
+                                            let offset_z = angle.sin() * dist;
+
+                                            // Sample terrain height at the offset position
+                                            let instance_x = hit_point.x + offset_x;
+                                            let instance_z = hit_point.z + offset_z;
+                                            let instance_y = heightmap.sample_height(instance_x, instance_z, config.scale);
+
+                                            // Random scale and rotation
+                                            let scale = brush_tool.scale_min + r3 * (brush_tool.scale_max - brush_tool.scale_min);
+                                            let rotation_y = if brush_tool.random_rotation {
+                                                r4 * std::f32::consts::TAU
+                                            } else {
+                                                0.0
+                                            };
+
+                                            foliage.instances.push(FoliageInstance {
+                                                position: [instance_x, instance_y, instance_z],
+                                                rotation_y,
+                                                scale,
+                                            });
+                                        }
+                                    }
+                                }
+
+                                if let Some(ui) = self.ui.as_mut() {
+                                    ui.mark_scene_modified();
+                                }
+                            }
+                            BrushMode::Erase => {
+                                // Remove instances near hit point
+                                let erase_radius_sq = brush_tool.radius * brush_tool.radius;
+
+                                // Collect changes first (to avoid borrow conflict)
+                                let mut updates: Vec<(EntityId, Vec<FoliageInstance>)> = Vec::new();
+
+                                for entity in scene.entities() {
+                                    if let Some(foliage) = entity.get_component::<Foliage>() {
+                                        let entity_id = entity.id;
+                                        let mut instances = foliage.instances.clone();
+                                        let original_count = instances.len();
+
+                                        instances.retain(|instance| {
+                                            let dx = instance.position[0] - hit_point.x;
+                                            let dz = instance.position[2] - hit_point.z;
+                                            let dist_sq = dx * dx + dz * dz;
+                                            dist_sq > erase_radius_sq
+                                        });
+
+                                        if instances.len() != original_count {
+                                            updates.push((entity_id, instances));
+                                        }
+                                    }
+                                }
+
+                                // Apply updates
+                                for (entity_id, instances) in updates {
+                                    if let Some(entity) = scene.get_entity_mut(entity_id) {
+                                        if let Some(foliage) = entity.get_component_mut::<Foliage>() {
+                                            foliage.instances = instances;
+                                        }
+                                    }
+                                }
+
+                                if let Some(ui) = self.ui.as_mut() {
+                                    ui.mark_scene_modified();
+                                }
+                            }
+                            // Select and terrain modes are not handled here
+                            _ => {}
+                        }
+
+                        // Reset brush_active to prevent continuous vegetation placement
+                        self.viewport_controls.brush_active = false;
+                    }
+                }
+            }
+        }
 
         // Update scripts
         script_system.update(scene, dt)?;
@@ -1246,6 +1565,85 @@ impl EditorApp {
                             first_mesh,
                         );
                         first_mesh = false;
+                    }
+                }
+            }
+        }
+
+        // Render foliage (instanced vegetation)
+        if let Some(ref mut foliage_renderer) = wgpu_state.foliage_renderer {
+            // Collect all foliage instances grouped by vegetation type
+            let mut foliage_by_type: std::collections::HashMap<String, Vec<FoliageInstanceGpu>> = std::collections::HashMap::new();
+
+            for entity in scene.entities() {
+                if let Some(foliage) = entity.get_component::<Foliage>() {
+                    let world_matrix = scene.world_matrix(entity.id);
+                    let color_tint = Vec3::from(foliage.color_tint);
+
+                    for instance in &foliage.instances {
+                        let local_pos = Vec3::from(instance.position);
+                        // Transform local position by entity's world matrix
+                        let world_pos = world_matrix.transform_point3(local_pos);
+
+                        let gpu_instance = FoliageInstanceGpu::new(
+                            world_pos,
+                            instance.rotation_y,
+                            instance.scale,
+                            color_tint,
+                        );
+
+                        foliage_by_type
+                            .entry(foliage.vegetation_type.clone())
+                            .or_insert_with(Vec::new)
+                            .push(gpu_instance);
+                    }
+                }
+            }
+
+            // Update camera uniforms for foliage
+            foliage_renderer.update_camera(&wgpu_state.renderer.queue, view_proj, camera.position);
+
+            // Render each vegetation type
+            for (veg_type, instances) in &foliage_by_type {
+                if instances.is_empty() {
+                    continue;
+                }
+
+                // Get the mesh for this vegetation type
+                if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(veg_type) {
+                    if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
+                        // Update instance buffer
+                        foliage_renderer.update_instances(
+                            &wgpu_state.renderer.device,
+                            &wgpu_state.renderer.queue,
+                            instances,
+                        );
+
+                        // Create foliage render pass
+                        let mut foliage_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Foliage Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &wgpu_state.msaa_texture,
+                                resolve_target: Some(&view),
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                                depth_slice: None,
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &wgpu_state.depth_texture,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
+
+                        foliage_renderer.render(&mut foliage_pass, gpu_mesh, instances.len() as u32);
                     }
                 }
             }
@@ -1701,6 +2099,10 @@ impl ApplicationHandler for EditorApp {
         } = event {
             // Ctrl+D - Duplicate entity
             if self.modifiers.control_key() && key_code == KeyCode::KeyD {
+                // Push undo state before duplicating
+                if let Some(scene) = &self.scene {
+                    self.undo_history.push_state(scene);
+                }
                 if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
                     if let Some(entity_id) = ui.selected_entity {
                         if let Some(new_id) = scene.duplicate_entity(entity_id) {
@@ -1708,6 +2110,113 @@ impl ApplicationHandler for EditorApp {
                             ui.mark_scene_modified();
                             log::info!("Duplicated entity {:?} -> {:?}", entity_id, new_id);
                         }
+                    }
+                }
+            }
+            // F - Focus camera on selected entity
+            if key_code == KeyCode::KeyF && !self.modifiers.control_key() {
+                if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            // Focus camera on entity position
+                            let target = entity.transform.position;
+                            self.viewport_controls.pan_offset = target;
+                            // Adjust orbit distance based on entity scale
+                            let max_scale = entity.transform.scale.x
+                                .max(entity.transform.scale.y)
+                                .max(entity.transform.scale.z);
+                            self.viewport_controls.orbit_distance = (max_scale * 5.0).max(5.0).min(50.0);
+                            log::info!("Focused on entity: {}", entity.name);
+                        }
+                    }
+                }
+            }
+            // Ctrl+C - Copy selected entity
+            if self.modifiers.control_key() && key_code == KeyCode::KeyC {
+                if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            // Serialize the entity to clipboard
+                            use engine_scene::scene_data::{SerializedEntity, SerializedComponent};
+                            use engine_scene::components::*;
+
+                            let mut components = Vec::new();
+                            if let Some(c) = entity.get_component::<MeshRenderer>() {
+                                components.push(SerializedComponent::MeshRenderer(c.clone()));
+                            }
+                            if let Some(c) = entity.get_component::<Camera>() {
+                                components.push(SerializedComponent::Camera(c.clone()));
+                            }
+                            if let Some(c) = entity.get_component::<Light>() {
+                                components.push(SerializedComponent::Light(c.clone()));
+                            }
+                            if let Some(c) = entity.get_component::<ParticleEmitter>() {
+                                components.push(SerializedComponent::ParticleEmitter(c.clone()));
+                            }
+                            if let Some(c) = entity.get_component::<Water>() {
+                                components.push(SerializedComponent::Water(c.clone()));
+                            }
+                            if let Some(c) = entity.get_component::<TerrainWater>() {
+                                components.push(SerializedComponent::TerrainWater(c.clone()));
+                            }
+                            if let Some(c) = entity.get_component::<TerrainGenerator>() {
+                                components.push(SerializedComponent::TerrainGenerator(c.clone()));
+                            }
+                            if let Some(c) = entity.get_component::<Foliage>() {
+                                components.push(SerializedComponent::Foliage(c.clone()));
+                            }
+
+                            self.clipboard = Some(SerializedEntity {
+                                id: entity.id,
+                                name: entity.name.clone(),
+                                transform: entity.transform,
+                                parent: None, // Don't copy parent relationship
+                                children: Vec::new(), // Don't copy children
+                                components,
+                            });
+                            log::info!("Copied entity: {}", entity.name);
+                        }
+                    }
+                }
+            }
+            // Ctrl+V - Paste entity from clipboard
+            if self.modifiers.control_key() && key_code == KeyCode::KeyV {
+                if let Some(ref clipboard) = self.clipboard.clone() {
+                    // Push undo state before pasting
+                    if let Some(scene) = &self.scene {
+                        self.undo_history.push_state(scene);
+                    }
+                    if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                        use engine_scene::scene_data::SerializedComponent;
+
+                        // Create a new entity with offset position
+                        let new_name = format!("{} (Copy)", clipboard.name);
+                        let new_id = scene.create_entity(new_name);
+
+                        if let Some(entity) = scene.get_entity_mut(new_id) {
+                            // Copy transform with offset
+                            entity.transform = clipboard.transform;
+                            entity.transform.position.x += 1.0; // Offset so it's visible
+
+                            // Add components from clipboard
+                            for component in &clipboard.components {
+                                match component {
+                                    SerializedComponent::MeshRenderer(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::Camera(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::Light(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::ParticleEmitter(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::Water(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::TerrainWater(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::TerrainGenerator(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::Foliage(c) => entity.add_component(c.clone()),
+                                    SerializedComponent::Generic { .. } => {}
+                                }
+                            }
+                        }
+
+                        ui.selected_entity = Some(new_id);
+                        ui.mark_scene_modified();
+                        log::info!("Pasted entity: {} (Copy)", clipboard.name);
                     }
                 }
             }
@@ -1725,25 +2234,87 @@ impl ApplicationHandler for EditorApp {
                     }
                 }
             }
-            // Ctrl+Z - Undo
+            // Ctrl+Z - Undo (handles both scene and terrain)
             if self.modifiers.control_key() && key_code == KeyCode::KeyZ && !self.modifiers.shift_key() {
-                if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
-                    if self.undo_history.undo(scene) {
-                        ui.selected_entity = None; // Selection may be invalid after undo
-                        ui.mark_scene_modified();
-                        log::info!("Undo (remaining: {})", self.undo_history.undo_count());
+                // Check if we're in terrain mode and have terrain undo states
+                let is_terrain_mode = self.ui.as_ref().map(|ui| ui.brush_tool.mode.is_terrain_mode()).unwrap_or(false);
+
+                if is_terrain_mode && !self.terrain_undo_stack.is_empty() {
+                    // Terrain undo
+                    if let Some(wgpu_state) = &mut self.wgpu_state {
+                        if let (Some(ref mut heightmap), Some(ref config)) = (&mut wgpu_state.terrain_heightmap, &wgpu_state.terrain_config) {
+                            // Save current state to redo stack
+                            self.terrain_redo_stack.push(heightmap.heights.clone());
+                            // Restore from undo stack
+                            if let Some(old_heights) = self.terrain_undo_stack.pop() {
+                                heightmap.heights = old_heights;
+                                // Regenerate terrain mesh
+                                let terrain_mesh = Terrain::generate_mesh_from_heightmap(heightmap, config);
+                                let gpu_vertices = convert_mesh_to_gpu(&terrain_mesh);
+                                wgpu_state.mesh_manager.upload_mesh(
+                                    &wgpu_state.renderer.device,
+                                    "terrain".to_string(),
+                                    &gpu_vertices,
+                                    &terrain_mesh.indices,
+                                );
+                                log::info!("Terrain undo (remaining: {})", self.terrain_undo_stack.len());
+                            }
+                        }
+                    }
+                } else {
+                    // Scene undo
+                    if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                        if self.undo_history.undo(scene) {
+                            ui.selected_entity = None;
+                            ui.mark_scene_modified();
+                            log::info!("Undo (remaining: {})", self.undo_history.undo_count());
+                        }
                     }
                 }
             }
-            // Ctrl+Y or Ctrl+Shift+Z - Redo
+            // Ctrl+Y or Ctrl+Shift+Z - Redo (handles both scene and terrain)
             if (self.modifiers.control_key() && key_code == KeyCode::KeyY) ||
                (self.modifiers.control_key() && self.modifiers.shift_key() && key_code == KeyCode::KeyZ) {
-                if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
-                    if self.undo_history.redo(scene) {
-                        ui.selected_entity = None; // Selection may be invalid after redo
-                        ui.mark_scene_modified();
-                        log::info!("Redo (remaining: {})", self.undo_history.redo_count());
+                // Check if we're in terrain mode and have terrain redo states
+                let is_terrain_mode = self.ui.as_ref().map(|ui| ui.brush_tool.mode.is_terrain_mode()).unwrap_or(false);
+
+                if is_terrain_mode && !self.terrain_redo_stack.is_empty() {
+                    // Terrain redo
+                    if let Some(wgpu_state) = &mut self.wgpu_state {
+                        if let (Some(ref mut heightmap), Some(ref config)) = (&mut wgpu_state.terrain_heightmap, &wgpu_state.terrain_config) {
+                            // Save current state to undo stack
+                            self.terrain_undo_stack.push(heightmap.heights.clone());
+                            // Restore from redo stack
+                            if let Some(new_heights) = self.terrain_redo_stack.pop() {
+                                heightmap.heights = new_heights;
+                                // Regenerate terrain mesh
+                                let terrain_mesh = Terrain::generate_mesh_from_heightmap(heightmap, config);
+                                let gpu_vertices = convert_mesh_to_gpu(&terrain_mesh);
+                                wgpu_state.mesh_manager.upload_mesh(
+                                    &wgpu_state.renderer.device,
+                                    "terrain".to_string(),
+                                    &gpu_vertices,
+                                    &terrain_mesh.indices,
+                                );
+                                log::info!("Terrain redo (remaining: {})", self.terrain_redo_stack.len());
+                            }
+                        }
                     }
+                } else {
+                    // Scene redo
+                    if let (Some(scene), Some(ui)) = (&mut self.scene, &mut self.ui) {
+                        if self.undo_history.redo(scene) {
+                            ui.selected_entity = None;
+                            ui.mark_scene_modified();
+                            log::info!("Redo (remaining: {})", self.undo_history.redo_count());
+                        }
+                    }
+                }
+            }
+            // F1 - Show keyboard shortcuts help
+            if key_code == KeyCode::F1 {
+                if let Some(ui) = &mut self.ui {
+                    ui.show_shortcuts_help = !ui.show_shortcuts_help;
                 }
             }
         }
