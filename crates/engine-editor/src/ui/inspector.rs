@@ -64,6 +64,7 @@ pub fn render_inspector_panel(
     scene: &mut Scene,
     selected_entity: &mut Option<EntityId>,
     inspector_state: &mut InspectorState,
+    is_locked: bool,
 ) -> InspectorResult {
     let mut result = InspectorResult::default();
     let mut components_to_remove: Vec<ComponentType> = Vec::new();
@@ -74,6 +75,14 @@ pub fn render_inspector_panel(
         .show(ctx, |ui| {
             ui.heading("Inspector");
             ui.separator();
+
+            // Show locked warning
+            if is_locked {
+                ui.horizontal(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(255, 180, 100), "🔒 Entity is locked");
+                });
+                ui.separator();
+            }
 
             ScrollArea::vertical().show(ui, |ui| {
                 if let Some(entity_id) = *selected_entity {

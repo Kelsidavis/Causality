@@ -2411,6 +2411,23 @@ impl ApplicationHandler for EditorApp {
                     }
                 }
             }
+            // P - Select parent entity
+            if key_code == KeyCode::KeyP && !self.modifiers.control_key() && !self.modifiers.shift_key() && !self.modifiers.alt_key() {
+                if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            if let Some(parent_id) = entity.parent {
+                                ui.selected_entity = Some(parent_id);
+                                if let Some(parent) = scene.get_entity(parent_id) {
+                                    log::info!("Selected parent: {}", parent.name);
+                                }
+                            } else {
+                                log::info!("Entity has no parent");
+                            }
+                        }
+                    }
+                }
+            }
             // Ctrl+C - Copy selected entity
             if self.modifiers.control_key() && key_code == KeyCode::KeyC {
                 if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {

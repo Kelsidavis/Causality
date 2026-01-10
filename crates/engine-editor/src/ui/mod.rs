@@ -414,7 +414,10 @@ impl EditorUi {
 
         // Right panel - Inspector (captures changes)
         if self.show_inspector {
-            result.inspector = inspector::render_inspector_panel(ctx, scene, &mut self.selected_entity, &mut self.inspector_state);
+            let is_locked = self.selected_entity
+                .map(|id| self.locked_entities.contains(&id))
+                .unwrap_or(false);
+            result.inspector = inspector::render_inspector_panel(ctx, scene, &mut self.selected_entity, &mut self.inspector_state, is_locked);
         }
 
         // Bottom panel - Console
@@ -1282,6 +1285,9 @@ impl EditorUi {
                     ui.end_row();
                     ui.label("Left/Right");
                     ui.label("Collapse/Expand Node");
+                    ui.end_row();
+                    ui.label("P");
+                    ui.label("Select Parent Entity");
                     ui.end_row();
                     ui.label("Ctrl+Shift+N");
                     ui.label("Create New Entity");
