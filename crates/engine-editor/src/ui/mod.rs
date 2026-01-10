@@ -228,6 +228,9 @@ pub struct EditorUi {
     pub hidden_entities: HashSet<EntityId>,
     // Locked entities (prevent modification)
     pub locked_entities: HashSet<EntityId>,
+    // Go To dialog state
+    pub show_goto_dialog: bool,
+    pub goto_search: String,
 }
 
 #[derive(Clone)]
@@ -277,6 +280,8 @@ impl EditorUi {
             redo_count: 0,
             hidden_entities: HashSet::new(),
             locked_entities: HashSet::new(),
+            show_goto_dialog: false,
+            goto_search: String::new(),
         }
     }
 
@@ -464,6 +469,10 @@ impl EditorUi {
             self.render_shortcuts_help(ctx);
         }
 
+        if self.show_goto_dialog {
+            self.render_goto_dialog(ctx, scene);
+        }
+
         result
     }
 
@@ -545,6 +554,14 @@ impl EditorUi {
                     }
                     if ui.add_enabled(can_redo, egui::Button::new("Redo").shortcut_text("Ctrl+Y")).clicked() {
                         result.redo_requested = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+
+                    if ui.add(egui::Button::new("Go To...").shortcut_text("Ctrl+G")).clicked() {
+                        self.show_goto_dialog = true;
+                        self.goto_search.clear();
                         ui.close();
                     }
 
@@ -1242,6 +1259,9 @@ impl EditorUi {
                     ui.label("Delete");
                     ui.label("Delete Selected Entity");
                     ui.end_row();
+                    ui.label("Ctrl+G");
+                    ui.label("Go To Entity");
+                    ui.end_row();
                 });
 
                 ui.separator();
@@ -1363,6 +1383,87 @@ impl EditorUi {
                             self.show_shortcuts_help = false;
                         }
                     });
+                });
+            });
+    }
+
+    fn render_goto_dialog(&mut self, ctx: &Context, scene: &Scene) {
+        egui::Window::new("Go To Entity")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, -50.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Name:");
+                    let response = ui.text_edit_singleline(&mut self.goto_search);
+
+                    // Auto-focus on open
+                    if self.goto_search.is_empty() {
+                        response.request_focus();
+                    }
+
+                    // Close on Escape
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.show_goto_dialog = false;
+                        self.goto_search.clear();
+                    }
+                });
+
+                ui.separator();
+
+                // Show matching entities
+                let search = self.goto_search.to_lowercase();
+                let matches: Vec<_> = if search.is_empty() {
+                    Vec::new()
+                } else {
+                    scene.entities()
+                        .filter(|e| e.name.to_lowercase().contains(&search))
+                        .take(10) // Limit results
+                        .collect()
+                };
+
+                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    for entity in &matches {
+                        if ui.selectable_label(self.selected_entity == Some(entity.id), &entity.name).clicked() {
+                            self.selected_entity = Some(entity.id);
+                            self.show_goto_dialog = false;
+                            self.goto_search.clear();
+                            // Expand parent nodes to make entity visible in hierarchy
+                            let mut current = entity.parent;
+                            while let Some(parent_id) = current {
+                                self.hierarchy_state.expanded_entities.insert(parent_id);
+                                current = scene.get_entity(parent_id).and_then(|e| e.parent);
+                            }
+                        }
+                    }
+
+                    if matches.is_empty() && !search.is_empty() {
+                        ui.label("No matching entities");
+                    } else if search.is_empty() {
+                        ui.label("Type to search...");
+                    }
+                });
+
+                // Handle Enter to select first match
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) && !matches.is_empty() {
+                    self.selected_entity = Some(matches[0].id);
+                    self.show_goto_dialog = false;
+                    self.goto_search.clear();
+                    // Expand parent nodes
+                    let entity = matches[0];
+                    let mut current = entity.parent;
+                    while let Some(parent_id) = current {
+                        self.hierarchy_state.expanded_entities.insert(parent_id);
+                        current = scene.get_entity(parent_id).and_then(|e| e.parent);
+                    }
+                }
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Close").clicked() {
+                        self.show_goto_dialog = false;
+                        self.goto_search.clear();
+                    }
                 });
             });
     }

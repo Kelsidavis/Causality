@@ -2365,6 +2365,13 @@ impl ApplicationHandler for EditorApp {
                     ui.hierarchy_state.new_entity_name = "New Entity".to_string();
                 }
             }
+            // Ctrl+G - Go To entity dialog
+            if self.modifiers.control_key() && key_code == KeyCode::KeyG && !self.modifiers.shift_key() {
+                if let Some(ui) = &mut self.ui {
+                    ui.show_goto_dialog = true;
+                    ui.goto_search.clear();
+                }
+            }
             // F - Focus camera on selected entity
             if key_code == KeyCode::KeyF && !self.modifiers.control_key() && !self.modifiers.shift_key() {
                 if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {
