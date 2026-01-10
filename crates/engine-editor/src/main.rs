@@ -88,6 +88,7 @@ struct WgpuState {
     texture_manager: TextureManager,
     material_manager: MaterialManager,
     depth_texture: wgpu::TextureView,
+    msaa_texture: wgpu::TextureView,
     skybox: Option<Skybox>,
     shadow_map: Option<ShadowMap>,
     water_renderer: Option<WaterRenderer>,
@@ -186,6 +187,7 @@ impl EditorApp {
         let material_manager = MaterialManager::new(&renderer.device, &texture_manager);
 
         let depth_texture = renderer.create_depth_texture(size.width, size.height);
+        let msaa_texture = renderer.create_msaa_texture(size.width, size.height, renderer.surface_config.format);
         let camera = Camera::new(size.width, size.height);
 
         // Create asset and mesh managers
@@ -468,6 +470,7 @@ impl EditorApp {
             texture_manager,
             material_manager,
             depth_texture,
+            msaa_texture,
             skybox,
             shadow_map,
             water_renderer,
@@ -528,6 +531,7 @@ impl EditorApp {
             if let (Some(wgpu_state), Some(camera)) = (&mut self.wgpu_state, &mut self.camera) {
                 wgpu_state.renderer.resize(&wgpu_state.surface, new_size.width, new_size.height);
                 wgpu_state.depth_texture = wgpu_state.renderer.create_depth_texture(new_size.width, new_size.height);
+                wgpu_state.msaa_texture = wgpu_state.renderer.create_msaa_texture(new_size.width, new_size.height, wgpu_state.renderer.surface_config.format);
                 camera.update_aspect(new_size.width, new_size.height);
             }
         }
@@ -988,14 +992,14 @@ impl EditorApp {
             None
         };
 
-        // Render skybox first (background)
+        // Render skybox first (background) - with MSAA
         if let Some(ref skybox) = wgpu_state.skybox {
             if let Some(ref camera_bind_group) = wgpu_state.camera_bind_group {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Skybox Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
+                        view: &wgpu_state.msaa_texture,
+                        resolve_target: Some(&view),
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.1,
@@ -1108,7 +1112,8 @@ impl EditorApp {
 
                         wgpu_state.renderer.render_mesh(
                             &mut encoder,
-                            &view,
+                            &wgpu_state.msaa_texture,
+                            Some(&view),
                             &wgpu_state.depth_texture,
                             gpu_mesh,
                             view_proj,
@@ -1150,12 +1155,12 @@ impl EditorApp {
 
                             // Get shadow bind group
                             if let Some(ref shadow_bg) = shadow_sampling_bind_group {
-                                // Create water render pass
+                                // Create water render pass with MSAA
                                 let mut water_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                                     label: Some("Water Render Pass"),
                                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &view,
-                                        resolve_target: None,
+                                        view: &wgpu_state.msaa_texture,
+                                        resolve_target: Some(&view),
                                         ops: wgpu::Operations {
                                             load: wgpu::LoadOp::Load, // Preserve previous content
                                             store: wgpu::StoreOp::Store,
@@ -1213,12 +1218,12 @@ impl EditorApp {
 
                         // Get shadow bind group
                         if let Some(ref shadow_bg) = shadow_sampling_bind_group {
-                            // Create water render pass
+                            // Create water render pass with MSAA
                             let mut water_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                                 label: Some("Terrain Water Render Pass"),
                                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &view,
-                                    resolve_target: None,
+                                    view: &wgpu_state.msaa_texture,
+                                    resolve_target: Some(&view),
                                     ops: wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
                                         store: wgpu::StoreOp::Store,
@@ -1279,11 +1284,12 @@ impl EditorApp {
                     }
 
                     if particle_count > 0 {
+                        // Particle render pass with MSAA
                         let mut particle_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Particle Render Pass"),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
+                                view: &wgpu_state.msaa_texture,
+                                resolve_target: Some(&view),
                                 ops: wgpu::Operations {
                                     load: wgpu::LoadOp::Load, // Don't clear - preserve geometry
                                     store: wgpu::StoreOp::Store,

@@ -1,5 +1,6 @@
 // Skybox rendering - cubemap environment
 
+use crate::MSAA_SAMPLE_COUNT;
 use anyhow::Result;
 use wgpu::util::DeviceExt;
 
@@ -150,7 +151,7 @@ impl Skybox {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: MSAA_SAMPLE_COUNT,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },

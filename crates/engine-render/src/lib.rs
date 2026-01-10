@@ -1,5 +1,8 @@
 // Engine Render - 3D rendering with wgpu
 
+/// MSAA sample count for anti-aliasing (1 = off, 4 = 4x MSAA)
+pub const MSAA_SAMPLE_COUNT: u32 = 4;
+
 pub mod camera;
 pub mod culling;
 pub mod frustum;

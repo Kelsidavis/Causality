@@ -4,6 +4,7 @@ use crate::gpu_material::GpuMaterial;
 use crate::gpu_mesh::{GpuMesh, GpuVertex};
 use crate::texture_manager::TextureManager;
 use crate::shadow::ShadowMap;
+use crate::MSAA_SAMPLE_COUNT;
 use anyhow::Result;
 use glam::Mat4;
 use wgpu::util::DeviceExt;
@@ -185,7 +186,7 @@ impl Renderer {
             },
             depth_stencil: Some(depth_stencil),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: MSAA_SAMPLE_COUNT,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -232,10 +233,12 @@ impl Renderer {
     }
 
     /// Render a mesh with a given transform, texture, and shadows
+    /// When using MSAA, `view` should be the MSAA texture and `resolve_target` should be the swapchain view
     pub fn render_mesh(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
+        resolve_target: Option<&wgpu::TextureView>,
         depth_texture: &wgpu::TextureView,
         mesh: &GpuMesh,
         view_proj: Mat4,
@@ -260,11 +263,14 @@ impl Renderer {
         };
 
         // Begin render pass
+        // For MSAA: render to multisampled texture, resolve to swapchain
+        // Store MSAA content so subsequent passes can load from it
+
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
-                resolve_target: None,
+                resolve_target,
                 ops: wgpu::Operations {
                     load: if clear {
                         wgpu::LoadOp::Clear(wgpu::Color {
@@ -288,7 +294,7 @@ impl Renderer {
                     } else {
                         wgpu::LoadOp::Load
                     },
-                    store: wgpu::StoreOp::Store,
+                    store: wgpu::StoreOp::Store, // Keep depth for subsequent passes
                 }),
                 stencil_ops: None,
             }),
@@ -329,10 +335,33 @@ impl Renderer {
             label: Some("Depth Texture"),
             size,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        };
+
+        let texture = self.device.create_texture(&desc);
+        texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    /// Create MSAA color texture for multisampled rendering
+    pub fn create_msaa_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> wgpu::TextureView {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        let desc = wgpu::TextureDescriptor {
+            label: Some("MSAA Color Texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: MSAA_SAMPLE_COUNT,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         };
 

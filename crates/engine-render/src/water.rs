@@ -1,6 +1,7 @@
 // Water renderer with transparency and animation
 
 use crate::gpu_mesh::GpuMesh;
+use crate::MSAA_SAMPLE_COUNT;
 use anyhow::Result;
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
@@ -150,7 +151,7 @@ impl WaterRenderer {
             },
             depth_stencil: Some(depth_stencil),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: MSAA_SAMPLE_COUNT,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
