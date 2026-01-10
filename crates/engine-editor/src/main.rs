@@ -2366,7 +2366,7 @@ impl ApplicationHandler for EditorApp {
                 }
             }
             // F - Focus camera on selected entity
-            if key_code == KeyCode::KeyF && !self.modifiers.control_key() {
+            if key_code == KeyCode::KeyF && !self.modifiers.control_key() && !self.modifiers.shift_key() {
                 if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {
                     if let Some(entity_id) = ui.selected_entity {
                         if let Some(entity) = scene.get_entity(entity_id) {
@@ -2380,6 +2380,36 @@ impl ApplicationHandler for EditorApp {
                             self.viewport_controls.orbit_distance = (max_scale * 5.0).max(5.0).min(50.0);
                             log::info!("Focused on entity: {}", entity.name);
                         }
+                    }
+                }
+            }
+            // Shift+F - Frame all visible entities
+            if key_code == KeyCode::KeyF && self.modifiers.shift_key() && !self.modifiers.control_key() {
+                if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {
+                    // Calculate bounding box of all visible entities
+                    let mut min_bounds = glam::Vec3::splat(f32::MAX);
+                    let mut max_bounds = glam::Vec3::splat(f32::MIN);
+                    let mut has_entities = false;
+
+                    for entity in scene.entities() {
+                        // Skip hidden entities
+                        if ui.hidden_entities.contains(&entity.id) {
+                            continue;
+                        }
+                        let pos = entity.transform.position;
+                        min_bounds = min_bounds.min(pos);
+                        max_bounds = max_bounds.max(pos);
+                        has_entities = true;
+                    }
+
+                    if has_entities {
+                        // Center on bounds center
+                        let center = (min_bounds + max_bounds) * 0.5;
+                        self.viewport_controls.pan_offset = center;
+                        // Calculate distance based on bounds size
+                        let size = (max_bounds - min_bounds).length();
+                        self.viewport_controls.orbit_distance = (size * 1.5).max(10.0).min(100.0);
+                        log::info!("Framed all visible entities");
                     }
                 }
             }
