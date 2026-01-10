@@ -114,6 +114,20 @@ pub fn render_hierarchy_panel(
                 }
             });
 
+            // Expand/Collapse all buttons
+            ui.horizontal(|ui| {
+                if ui.small_button("Expand All").clicked() {
+                    for entity in scene.entities() {
+                        if !entity.children.is_empty() {
+                            expand_all_children(scene, entity.id, &mut state.expanded_entities);
+                        }
+                    }
+                }
+                if ui.small_button("Collapse All").clicked() {
+                    state.expanded_entities.clear();
+                }
+            });
+
             ui.separator();
 
             // Build list of visible entities for keyboard navigation
