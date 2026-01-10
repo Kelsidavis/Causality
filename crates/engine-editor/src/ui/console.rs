@@ -3,14 +3,24 @@
 use super::{ConsoleLevel, ConsoleMessage};
 use egui::{Color32, Context, ScrollArea};
 
+/// Maximum number of console messages to keep
+const MAX_CONSOLE_MESSAGES: usize = 500;
+
 pub fn render_console_panel(ctx: &Context, messages: &mut Vec<ConsoleMessage>) {
+    // Auto-prune old messages
+    if messages.len() > MAX_CONSOLE_MESSAGES {
+        let excess = messages.len() - MAX_CONSOLE_MESSAGES;
+        messages.drain(0..excess);
+    }
+
     egui::TopBottomPanel::bottom("console_panel")
         .default_height(200.0)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Console");
+                ui.label(format!("({} messages)", messages.len()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Clear").clicked() {
+                    if ui.button("Clear").clicked() || ui.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::L)) {
                         messages.clear();
                     }
                 });
