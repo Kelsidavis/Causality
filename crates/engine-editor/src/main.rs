@@ -2247,6 +2247,21 @@ impl ApplicationHandler for EditorApp {
                 self.viewport_controls.handle_mouse_motion(position.x as f32, position.y as f32);
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                // Shift + scroll adjusts brush size when in brush mode
+                if self.modifiers.shift_key() {
+                    if let Some(ui) = &mut self.ui {
+                        if ui.brush_tool.mode != BrushMode::Select {
+                            let scroll_amount = match delta {
+                                MouseScrollDelta::LineDelta(_, y) => *y,
+                                MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
+                            };
+                            // Adjust radius with scroll
+                            ui.brush_tool.radius = (ui.brush_tool.radius + scroll_amount * 0.5)
+                                .clamp(0.5, 30.0);
+                            return; // Don't also zoom
+                        }
+                    }
+                }
                 self.viewport_controls.handle_mouse_wheel(*delta);
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {

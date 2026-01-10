@@ -969,7 +969,7 @@ impl EditorUi {
                     ui.separator();
                 }
 
-                // Brush mode indicator
+                // Brush mode indicator with radius
                 if self.brush_tool.mode != BrushMode::Select {
                     let mode_text = match self.brush_tool.mode {
                         BrushMode::Place => format!("Brush: Place {}", self.brush_tool.vegetation_type.name()),
@@ -985,7 +985,7 @@ impl EditorUi {
                     } else {
                         egui::Color32::LIGHT_BLUE
                     };
-                    ui.colored_label(color, mode_text);
+                    ui.colored_label(color, format!("{} (r={:.1})", mode_text, self.brush_tool.radius));
                     ui.separator();
                 }
 
@@ -1188,9 +1188,6 @@ impl EditorUi {
                     ui.label("Mouse Wheel");
                     ui.label("Zoom In/Out");
                     ui.end_row();
-                    ui.label("Left Click + Drag");
-                    ui.label("Paint/Sculpt with Brush Tool");
-                    ui.end_row();
                 });
 
                 ui.separator();
@@ -1227,6 +1224,17 @@ impl EditorUi {
                     ui.end_row();
                     ui.label("F4");
                     ui.label("Toggle Console Panel");
+                    ui.end_row();
+                });
+
+                ui.separator();
+                ui.heading("Brush Tool");
+                egui::Grid::new("brush_shortcuts").striped(true).show(ui, |ui| {
+                    ui.label("Shift+Scroll");
+                    ui.label("Adjust Brush Size");
+                    ui.end_row();
+                    ui.label("Left Click + Drag");
+                    ui.label("Paint/Sculpt");
                     ui.end_row();
                 });
 
