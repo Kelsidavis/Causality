@@ -2448,7 +2448,7 @@ impl ApplicationHandler for EditorApp {
                 }
             }
             // ] - Select next sibling entity
-            if key_code == KeyCode::BracketRight && !self.modifiers.control_key() {
+            if key_code == KeyCode::BracketRight && !self.modifiers.control_key() && !self.modifiers.shift_key() {
                 if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
                     if let Some(entity_id) = ui.selected_entity {
                         if let Some(entity) = scene.get_entity(entity_id) {
@@ -2474,6 +2474,38 @@ impl ApplicationHandler for EditorApp {
                                     let next_idx = (idx + 1) % roots.len();
                                     ui.selected_entity = Some(roots[next_idx].id);
                                     log::info!("Selected next root: {}", roots[next_idx].name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Shift+] - Select previous sibling entity
+            if key_code == KeyCode::BracketRight && self.modifiers.shift_key() && !self.modifiers.control_key() {
+                if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            if let Some(parent_id) = entity.parent {
+                                if let Some(parent) = scene.get_entity(parent_id) {
+                                    if let Some(idx) = parent.children.iter().position(|&id| id == entity_id) {
+                                        // Select previous sibling (wrap around)
+                                        let prev_idx = if idx == 0 { parent.children.len() - 1 } else { idx - 1 };
+                                        let prev_sibling = parent.children[prev_idx];
+                                        ui.selected_entity = Some(prev_sibling);
+                                        if let Some(sibling) = scene.get_entity(prev_sibling) {
+                                            log::info!("Selected previous sibling: {}", sibling.name);
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No parent, try previous root entity
+                                let roots: Vec<_> = scene.entities()
+                                    .filter(|e| e.parent.is_none())
+                                    .collect();
+                                if let Some(idx) = roots.iter().position(|e| e.id == entity_id) {
+                                    let prev_idx = if idx == 0 { roots.len() - 1 } else { idx - 1 };
+                                    ui.selected_entity = Some(roots[prev_idx].id);
+                                    log::info!("Selected previous root: {}", roots[prev_idx].name);
                                 }
                             }
                         }

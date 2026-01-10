@@ -1295,6 +1295,9 @@ impl EditorUi {
                     ui.label("]");
                     ui.label("Select Next Sibling");
                     ui.end_row();
+                    ui.label("Shift+]");
+                    ui.label("Select Previous Sibling");
+                    ui.end_row();
                     ui.label("Ctrl+Shift+N");
                     ui.label("Create New Entity");
                     ui.end_row();
