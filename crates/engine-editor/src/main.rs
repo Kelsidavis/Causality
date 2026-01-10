@@ -45,6 +45,14 @@ use winit::{
     window::{Window, WindowId},
 };
 
+/// Camera modes for the editor
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CameraMode {
+    Editor,
+    Player,
+    TopDown,
+}
+
 /// Causality Engine Editor
 #[derive(Parser, Debug)]
 #[command(name = "Causality Engine Editor")]
@@ -85,8 +93,8 @@ struct EditorApp {
     terrain_redo_stack: Vec<Vec<f32>>,
     /// Flag to track if we're currently sculpting (to save undo state on first brush stroke)
     terrain_sculpt_started: bool,
-    /// Player mode toggle - switches between editor camera and first-person player
-    player_mode: bool,
+    /// Current camera mode (Editor, Player, or TopDown)
+    camera_mode: CameraMode,
     /// Player position in world space
     player_position: glam::Vec3,
     /// Player horizontal rotation (yaw) in radians
@@ -99,6 +107,20 @@ struct EditorApp {
     movement_keys: [bool; 4],
     /// Last mouse position for calculating delta (workaround for broken cursor lock)
     last_mouse_pos: Option<(f64, f64)>,
+    /// Whether player is on the ground (for jump detection)
+    player_on_ground: bool,
+    /// Top-down camera center point (what the camera looks at)
+    topdown_center: glam::Vec3,
+    /// Top-down camera horizontal rotation around Y-axis (radians)
+    topdown_yaw: f32,
+    /// Top-down camera pitch angle (radians, typically 50°)
+    topdown_pitch: f32,
+    /// Top-down camera height/distance from center point
+    topdown_height: f32,
+    /// Edge scrolling margin in pixels
+    topdown_edge_scroll_margin: f32,
+    /// Top-down rotation key states: [Q (left), E (right)]
+    topdown_rotation_keys: [bool; 2],
 }
 
 struct EguiState {
@@ -287,13 +309,20 @@ impl EditorApp {
             terrain_undo_stack: Vec::new(),
             terrain_redo_stack: Vec::new(),
             terrain_sculpt_started: false,
-            player_mode: false,
+            camera_mode: CameraMode::Editor,
             player_position: glam::Vec3::new(0.0, 5.0, 10.0),
             player_yaw: 0.0,
             player_pitch: 0.0,
             player_velocity: glam::Vec3::ZERO,
             movement_keys: [false; 4],
             last_mouse_pos: None,
+            player_on_ground: false,
+            topdown_center: glam::Vec3::ZERO,
+            topdown_yaw: 45.0_f32.to_radians(),
+            topdown_pitch: 50.0_f32.to_radians(),
+            topdown_height: 20.0,
+            topdown_edge_scroll_margin: 20.0,
+            topdown_rotation_keys: [false; 2],
         }
     }
 
@@ -939,63 +968,203 @@ impl EditorApp {
             }
         }
 
-        // Update camera based on mode (player or editor)
-        if self.player_mode {
-            // Player mode: first-person camera and WASD movement
+        // Update camera based on mode (player, editor, or top-down)
+        match self.camera_mode {
+            CameraMode::Player => {
+                // Player mode: first-person camera with WASD movement, gravity, and jumping
 
-            // Calculate movement direction from keys
-            let mut move_dir = glam::Vec3::ZERO;
-            if self.movement_keys[0] { move_dir.z += 1.0; } // W - forward
-            if self.movement_keys[1] { move_dir.z -= 1.0; } // S - backward
-            if self.movement_keys[2] { move_dir.x -= 1.0; } // A - left
-            if self.movement_keys[3] { move_dir.x += 1.0; } // D - right
+                // Calculate horizontal movement direction from keys
+                let mut move_dir = glam::Vec3::ZERO;
+                if self.movement_keys[0] { move_dir.z += 1.0; } // W - forward
+                if self.movement_keys[1] { move_dir.z -= 1.0; } // S - backward
+                if self.movement_keys[2] { move_dir.x -= 1.0; } // A - left
+                if self.movement_keys[3] { move_dir.x += 1.0; } // D - right
 
-            // Normalize movement direction
-            if move_dir.length_squared() > 0.0 {
-                move_dir = move_dir.normalize();
+                // Normalize movement direction
+                if move_dir.length_squared() > 0.0 {
+                    move_dir = move_dir.normalize();
+                }
+
+                // Calculate forward and right vectors from yaw (ignore pitch for movement)
+                let forward = glam::Vec3::new(
+                    self.player_yaw.sin(),
+                    0.0,
+                    -self.player_yaw.cos(),
+                );
+                let right = glam::Vec3::new(
+                    (self.player_yaw + std::f32::consts::PI / 2.0).sin(),
+                    0.0,
+                    -(self.player_yaw + std::f32::consts::PI / 2.0).cos(),
+                );
+
+                // Apply horizontal movement
+                let move_speed = 10.0; // units per second
+                let horizontal_movement = (forward * move_dir.z + right * move_dir.x) * move_speed * dt;
+                self.player_position.x += horizontal_movement.x;
+                self.player_position.z += horizontal_movement.z;
+
+                // Apply gravity
+                let gravity = -20.0; // units per second squared
+                self.player_velocity.y += gravity * dt;
+
+                // Apply vertical velocity
+                self.player_position.y += self.player_velocity.y * dt;
+
+                // Terrain collision detection
+                let player_height = 1.8; // Player eye height above ground
+                let mut ground_height = 0.0;
+
+                if let (Some(ref heightmap), Some(ref config)) = (&wgpu_state.terrain_heightmap, &wgpu_state.terrain_config) {
+                    // Sample terrain height at player position using actual terrain config
+                    let terrain_width = config.width as f32;
+                    let terrain_depth = config.depth as f32;
+                    let terrain_scale = config.scale;
+
+                    // Convert world position to heightmap coordinates
+                    // Terrain is centered at origin, so [-scale/2, scale/2] maps to [0, width]
+                    let hm_x = ((self.player_position.x / terrain_scale + 0.5) * terrain_width) as i32;
+                    let hm_z = ((self.player_position.z / terrain_scale + 0.5) * terrain_depth) as i32;
+
+                    // Clamp to heightmap bounds
+                    let hm_x = hm_x.clamp(0, config.width as i32 - 1);
+                    let hm_z = hm_z.clamp(0, config.depth as i32 - 1);
+
+                    // Sample height
+                    let idx = (hm_z * config.width as i32 + hm_x) as usize;
+                    if idx < heightmap.heights.len() {
+                        ground_height = heightmap.heights[idx];
+                    }
+                }
+
+                // Ground collision - keep player above ground
+                let target_height = ground_height + player_height;
+                if self.player_position.y <= target_height {
+                    self.player_position.y = target_height;
+                    self.player_velocity.y = 0.0; // Stop falling when hitting ground
+                    self.player_on_ground = true;
+                } else {
+                    self.player_on_ground = false;
+                }
+
+                // Calculate camera look direction from yaw and pitch
+                // Standard FPS camera: yaw rotates around Y axis, pitch around right axis
+                let camera_forward = glam::Vec3::new(
+                    self.player_yaw.sin() * self.player_pitch.cos(),
+                    self.player_pitch.sin(),
+                    -self.player_yaw.cos() * self.player_pitch.cos(),
+                );
+
+                // Update camera position and target
+                camera.position = self.player_position;
+                camera.target = self.player_position + camera_forward;
+                camera.up = glam::Vec3::Y;  // Always use world up for FPS camera
+
+                // Update camera info in UI for status bar
+                if let Some(ui) = &mut self.ui {
+                    ui.update_camera_info(camera.position, 0.0);
+                }
             }
 
-            // Calculate forward and right vectors from yaw (ignore pitch for movement)
-            let forward = glam::Vec3::new(
-                self.player_yaw.sin(),
-                0.0,
-                -self.player_yaw.cos(),
-            );
-            let right = glam::Vec3::new(
-                (self.player_yaw + std::f32::consts::PI / 2.0).sin(),
-                0.0,
-                -(self.player_yaw + std::f32::consts::PI / 2.0).cos(),
-            );
+            CameraMode::TopDown => {
+                // Top-down strategy camera with WASD panning, Q/E rotation, mouse edge scrolling
 
-            // Apply movement
-            let move_speed = 10.0; // units per second
-            let movement = (forward * move_dir.z + right * move_dir.x) * move_speed * dt;
-            self.player_position += movement;
+                // 1. WASD/Arrow panning (reuse movement_keys array)
+                let mut pan_dir = glam::Vec3::ZERO;
+                if self.movement_keys[0] { pan_dir.z += 1.0; } // W - forward (north)
+                if self.movement_keys[1] { pan_dir.z -= 1.0; } // S - backward (south)
+                if self.movement_keys[2] { pan_dir.x -= 1.0; } // A - left (west)
+                if self.movement_keys[3] { pan_dir.x += 1.0; } // D - right (east)
 
-            // Calculate camera look direction from yaw and pitch
-            // Standard FPS camera: yaw rotates around Y axis, pitch around right axis
-            let camera_forward = glam::Vec3::new(
-                self.player_yaw.sin() * self.player_pitch.cos(),
-                self.player_pitch.sin(),
-                -self.player_yaw.cos() * self.player_pitch.cos(),
-            );
+                // Normalize panning direction
+                if pan_dir.length_squared() > 0.0 {
+                    pan_dir = pan_dir.normalize();
 
-            // Update camera position and target
-            camera.position = self.player_position;
-            camera.target = self.player_position + camera_forward;
-            camera.up = glam::Vec3::Y;  // Always use world up for FPS camera
+                    // Pan relative to camera rotation
+                    let forward = glam::Vec3::new(
+                        -self.topdown_yaw.sin(),
+                        0.0,
+                        -self.topdown_yaw.cos(),
+                    );
+                    let right = glam::Vec3::new(
+                        self.topdown_yaw.cos(),
+                        0.0,
+                        -self.topdown_yaw.sin(),
+                    );
 
-            // Update camera info in UI for status bar
-            if let Some(ui) = &mut self.ui {
-                ui.update_camera_info(camera.position, 0.0);
+                    let pan_speed = 10.0; // units per second
+                    let panning = (forward * pan_dir.z + right * pan_dir.x) * pan_speed * dt;
+                    self.topdown_center += panning;
+                }
+
+                // 2. Q/E rotation
+                let mut rotation_input = 0.0;
+                if self.topdown_rotation_keys[0] { rotation_input -= 1.0; } // Q - rotate left
+                if self.topdown_rotation_keys[1] { rotation_input += 1.0; } // E - rotate right
+
+                let rotation_speed = 1.5; // radians per second
+                self.topdown_yaw += rotation_input * rotation_speed * dt;
+
+                // 3. Mouse edge scrolling
+                let screen_width = wgpu_state.renderer.surface_config.width as f32;
+                let screen_height = wgpu_state.renderer.surface_config.height as f32;
+                let (mouse_x, mouse_y) = self.viewport_controls.current_mouse_pos;
+
+                let margin = self.topdown_edge_scroll_margin;
+                let mut edge_scroll = glam::Vec3::ZERO;
+
+                // Check proximity to edges
+                if mouse_x < margin {
+                    edge_scroll.x -= (margin - mouse_x) / margin; // Scroll left
+                } else if mouse_x > screen_width - margin {
+                    edge_scroll.x += (mouse_x - (screen_width - margin)) / margin; // Scroll right
+                }
+
+                if mouse_y < margin {
+                    edge_scroll.z += (margin - mouse_y) / margin; // Scroll up
+                } else if mouse_y > screen_height - margin {
+                    edge_scroll.z -= (mouse_y - (screen_height - margin)) / margin; // Scroll down
+                }
+
+                // Apply edge scrolling (scaled by distance to edge)
+                if edge_scroll.length_squared() > 0.0 {
+                    let forward = glam::Vec3::new(
+                        -self.topdown_yaw.sin(),
+                        0.0,
+                        -self.topdown_yaw.cos(),
+                    );
+                    let right = glam::Vec3::new(
+                        self.topdown_yaw.cos(),
+                        0.0,
+                        -self.topdown_yaw.sin(),
+                    );
+                    let edge_panning = (forward * edge_scroll.z + right * edge_scroll.x) * 15.0 * dt;
+                    self.topdown_center += edge_panning;
+                }
+
+                // 4. Calculate camera position from center, height, yaw, and pitch
+                // Spherical coordinates: camera orbits around center point
+                let x = self.topdown_height * self.topdown_pitch.cos() * self.topdown_yaw.sin();
+                let y = self.topdown_height * self.topdown_pitch.sin();
+                let z = self.topdown_height * self.topdown_pitch.cos() * self.topdown_yaw.cos();
+
+                camera.position = self.topdown_center + glam::Vec3::new(x, y, z);
+                camera.target = self.topdown_center;
+                camera.up = glam::Vec3::Y;
+
+                // Update camera info in UI
+                if let Some(ui) = &mut self.ui {
+                    ui.update_camera_info(camera.position, self.topdown_height);
+                }
             }
-        } else {
-            // Editor mode: orbit camera controls
-            self.viewport_controls.update_camera(camera);
 
-            // Update camera info in UI for status bar
-            if let Some(ui) = &mut self.ui {
-                ui.update_camera_info(camera.position, self.viewport_controls.orbit_distance);
+            CameraMode::Editor => {
+                // Editor mode: orbit camera controls
+                self.viewport_controls.update_camera(camera);
+
+                // Update camera info in UI for status bar
+                if let Some(ui) = &mut self.ui {
+                    ui.update_camera_info(camera.position, self.viewport_controls.orbit_distance);
+                }
             }
         }
 
@@ -2014,7 +2183,7 @@ impl EditorApp {
         }
 
         // Render egui UI and capture editor changes (skip in player mode)
-        let (paint_jobs, textures_delta, screen_descriptor, editor_result) = if !self.player_mode {
+        let (paint_jobs, textures_delta, screen_descriptor, editor_result) = if self.camera_mode != CameraMode::Player {
             let ui = self.ui.as_mut().unwrap();
             let egui_state = self.egui_state.as_mut().unwrap();
             let can_undo = self.undo_history.can_undo();
@@ -2374,7 +2543,7 @@ impl ApplicationHandler for EditorApp {
         event: WindowEvent,
     ) {
         // Let egui handle the event first (but not in player mode)
-        if !self.player_mode {
+        if self.camera_mode != CameraMode::Player {
             if let (Some(egui_state), Some(window)) = (&mut self.egui_state, &self.window) {
                 let response = egui_state.winit_state.on_window_event(
                     window,
@@ -2386,8 +2555,8 @@ impl ApplicationHandler for EditorApp {
             }
         }
 
-        // Handle viewport controls (camera) - but not in player mode
-        if !self.player_mode {
+        // Handle viewport controls (camera) - only in editor mode
+        if self.camera_mode == CameraMode::Editor {
             match &event {
                 WindowEvent::MouseInput { state, button, .. } => {
                     self.viewport_controls.handle_mouse_button(*button, *state);
@@ -2397,6 +2566,11 @@ impl ApplicationHandler for EditorApp {
                 }
                 _ => {}
             }
+        }
+
+        // Update current mouse position for all modes (needed for top-down edge scrolling)
+        if let WindowEvent::CursorMoved { position, .. } = &event {
+            self.viewport_controls.current_mouse_pos = (position.x as f32, position.y as f32);
         }
 
         match &event {
@@ -2416,10 +2590,20 @@ impl ApplicationHandler for EditorApp {
                         }
                     }
                 }
-                // Only handle mouse wheel for viewport zoom when not in player mode
-                if !self.player_mode {
+                // Handle mouse wheel based on camera mode
+                if self.camera_mode == CameraMode::TopDown && !self.modifiers.shift_key() {
+                    // Top-down mode: zoom in/out by adjusting camera height
+                    let zoom_amount = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => *y,
+                        MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
+                    };
+                    self.topdown_height -= zoom_amount * 1.5;
+                    self.topdown_height = self.topdown_height.clamp(5.0, 100.0);
+                } else if self.camera_mode == CameraMode::Editor {
+                    // Editor mode: use viewport controls
                     self.viewport_controls.handle_mouse_wheel(*delta);
                 }
+                // Player mode: no mouse wheel handling
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {
                 self.modifiers = new_modifiers.state();
@@ -2436,13 +2620,35 @@ impl ApplicationHandler for EditorApp {
             },
             ..
         } = event {
-            if self.player_mode {
+            // Handle WASD/Arrow keys for Player and TopDown modes
+            if self.camera_mode == CameraMode::Player || self.camera_mode == CameraMode::TopDown {
                 let pressed = state == ElementState::Pressed;
                 match key_code {
-                    KeyCode::KeyW => self.movement_keys[0] = pressed,
-                    KeyCode::KeyS => self.movement_keys[1] = pressed,
-                    KeyCode::KeyA => self.movement_keys[2] = pressed,
-                    KeyCode::KeyD => self.movement_keys[3] = pressed,
+                    KeyCode::KeyW | KeyCode::ArrowUp => self.movement_keys[0] = pressed,
+                    KeyCode::KeyS | KeyCode::ArrowDown => self.movement_keys[1] = pressed,
+                    KeyCode::KeyA | KeyCode::ArrowLeft => self.movement_keys[2] = pressed,
+                    KeyCode::KeyD | KeyCode::ArrowRight => self.movement_keys[3] = pressed,
+                    _ => {}
+                }
+            }
+
+            // Handle Space for jumping in Player mode
+            if self.camera_mode == CameraMode::Player {
+                if key_code == KeyCode::Space && state == ElementState::Pressed {
+                    if self.player_on_ground {
+                        let jump_velocity = 8.0; // Initial upward velocity
+                        self.player_velocity.y = jump_velocity;
+                        self.player_on_ground = false;
+                    }
+                }
+            }
+
+            // Handle Q/E rotation keys for TopDown mode
+            if self.camera_mode == CameraMode::TopDown {
+                let pressed = state == ElementState::Pressed;
+                match key_code {
+                    KeyCode::KeyQ => self.topdown_rotation_keys[0] = pressed,
+                    KeyCode::KeyE => self.topdown_rotation_keys[1] = pressed,
                     _ => {}
                 }
             }
@@ -2592,37 +2798,106 @@ impl ApplicationHandler for EditorApp {
             }
             // M - Toggle player mode
             if key_code == KeyCode::KeyM && !self.modifiers.control_key() && !self.modifiers.shift_key() && !self.modifiers.alt_key() {
-                self.player_mode = !self.player_mode;
-                if self.player_mode {
-                    // Copy current editor camera position and orientation when entering player mode
-                    if let Some(camera) = &self.camera {
-                        self.player_position = camera.position;
-                        // Calculate yaw and pitch from current camera look direction
-                        let look_dir = (camera.target - camera.position).normalize();
-                        self.player_yaw = look_dir.x.atan2(-look_dir.z);
-                        self.player_pitch = look_dir.y.asin();
+                match self.camera_mode {
+                    CameraMode::Editor | CameraMode::TopDown => {
+                        // Enter player mode
+                        if let Some(camera) = &self.camera {
+                            // Start at camera target position (where camera is looking)
+                            let start_pos = if self.camera_mode == CameraMode::TopDown {
+                                // For top-down mode, use the center point as starting position
+                                self.topdown_center
+                            } else {
+                                // For editor mode, use camera target
+                                camera.target
+                            };
+
+                            // Get terrain height at starting position
+                            let mut ground_height = 0.0;
+                            if let Some(wgpu_state) = &self.wgpu_state {
+                                if let (Some(ref heightmap), Some(ref config)) = (&wgpu_state.terrain_heightmap, &wgpu_state.terrain_config) {
+                                    let terrain_width = config.width as f32;
+                                    let terrain_depth = config.depth as f32;
+                                    let terrain_scale = config.scale;
+                                    let hm_x = ((start_pos.x / terrain_scale + 0.5) * terrain_width) as i32;
+                                    let hm_z = ((start_pos.z / terrain_scale + 0.5) * terrain_depth) as i32;
+                                    let hm_x = hm_x.clamp(0, config.width as i32 - 1);
+                                    let hm_z = hm_z.clamp(0, config.depth as i32 - 1);
+                                    let idx = (hm_z * config.width as i32 + hm_x) as usize;
+                                    if idx < heightmap.heights.len() {
+                                        ground_height = heightmap.heights[idx];
+                                    }
+                                }
+                            }
+
+                            // Set player position at eye height (1.8) above ground
+                            self.player_position = glam::Vec3::new(
+                                start_pos.x,
+                                ground_height + 1.8,
+                                start_pos.z,
+                            );
+                            self.player_velocity = glam::Vec3::ZERO;
+                            self.player_on_ground = true;
+
+                            let look_dir = (camera.target - camera.position).normalize();
+                            self.player_yaw = look_dir.x.atan2(-look_dir.z);
+                            self.player_pitch = look_dir.y.asin();
+                        }
+                        self.camera_mode = CameraMode::Player;
+                        log::info!("Player mode enabled - Use WASD to move, Space to jump, mouse to look, Escape or M to exit");
+
+                        // Lock cursor
+                        if let Some(window) = &self.window {
+                            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
+                            window.set_cursor_visible(false);
+                        }
                     }
-                    log::info!("Player mode enabled - Use WASD to move, mouse to look, Escape or M to exit");
-                    log::info!("Initial yaw: {:.3}, pitch: {:.3}", self.player_yaw, self.player_pitch);
-                    // Lock cursor to window when entering player mode
-                    if let Some(window) = &self.window {
-                        let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
-                        window.set_cursor_visible(false);
-                    }
-                } else {
-                    log::info!("Player mode disabled");
-                    // Release cursor when exiting player mode
-                    if let Some(window) = &self.window {
-                        let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
-                        window.set_cursor_visible(true);
+                    CameraMode::Player => {
+                        // Exit to editor mode
+                        self.camera_mode = CameraMode::Editor;
+                        log::info!("Player mode disabled");
+
+                        // Release cursor
+                        if let Some(window) = &self.window {
+                            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+                            window.set_cursor_visible(true);
+                        }
                     }
                 }
             }
-            // Escape - Exit player mode if active
-            if key_code == KeyCode::Escape && self.player_mode {
-                self.player_mode = false;
-                log::info!("Player mode disabled");
-                // Release cursor when exiting player mode
+
+            // T - Toggle top-down strategy mode
+            if key_code == KeyCode::KeyT && !self.modifiers.control_key() && !self.modifiers.shift_key() && !self.modifiers.alt_key() {
+                match self.camera_mode {
+                    CameraMode::Editor | CameraMode::Player => {
+                        // Enter top-down mode
+                        if let Some(camera) = &self.camera {
+                            self.topdown_center = camera.target;
+                            let dist = (camera.position - camera.target).length();
+                            self.topdown_height = dist.clamp(10.0, 50.0);
+                        }
+                        self.camera_mode = CameraMode::TopDown;
+                        log::info!("Top-down strategy mode enabled - WASD to pan, Q/E to rotate, mouse wheel to zoom, T/Escape to exit");
+
+                        // Release cursor if it was locked
+                        if let Some(window) = &self.window {
+                            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+                            window.set_cursor_visible(true);
+                        }
+                    }
+                    CameraMode::TopDown => {
+                        // Exit to editor mode
+                        self.camera_mode = CameraMode::Editor;
+                        log::info!("Top-down mode disabled, returning to editor mode");
+                    }
+                }
+            }
+
+            // Escape - Exit player or top-down mode if active
+            if key_code == KeyCode::Escape && self.camera_mode != CameraMode::Editor {
+                self.camera_mode = CameraMode::Editor;
+                log::info!("Returning to editor mode");
+
+                // Release cursor (important for player mode)
                 if let Some(window) = &self.window {
                     let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
                     window.set_cursor_visible(true);
@@ -3015,7 +3290,7 @@ impl ApplicationHandler for EditorApp {
         event: winit::event::DeviceEvent,
     ) {
         // Handle raw mouse motion for player camera control
-        if self.player_mode {
+        if self.camera_mode == CameraMode::Player {
             if let winit::event::DeviceEvent::MouseMotion { delta } = event {
                 // Check if these are actual deltas or absolute positions
                 let (raw_x, raw_y) = delta;
