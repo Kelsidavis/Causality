@@ -28,7 +28,7 @@ use engine_render::{
     water::WaterRenderer,
 };
 use engine_scene::{
-    components::{AudioListener, AudioSource, MeshRenderer, ParticleEmitter, Water, TerrainWater, WaterBody, TerrainGenerator, Foliage, FoliageInstance},
+    components::{AudioListener, AudioSource, Camera as CameraComponent, Light, MeshRenderer, ParticleEmitter, Water, TerrainWater, WaterBody, TerrainGenerator, Foliage, FoliageInstance},
     entity::EntityId,
     scene::Scene,
     transform::Transform,
@@ -1916,11 +1916,13 @@ impl EditorApp {
             let egui_state = self.egui_state.as_mut().unwrap();
             let can_undo = self.undo_history.can_undo();
             let can_redo = self.undo_history.can_redo();
+            let undo_count = self.undo_history.undo_count();
+            let redo_count = self.undo_history.redo_count();
 
             let raw_input = egui_state.winit_state.take_egui_input(window);
             let mut editor_result = EditorResult::default();
             let full_output = egui_state.context.run(raw_input, |ctx| {
-                editor_result = ui.render(ctx, scene, can_undo, can_redo);
+                editor_result = ui.render(ctx, scene, can_undo, can_redo, undo_count, redo_count);
             });
 
             egui_state.winit_state.handle_platform_output(
@@ -1960,6 +1962,44 @@ impl EditorApp {
             if let Some(ui) = self.ui.as_mut() {
                 ui.selected_entity = Some(new_id);
                 ui.mark_scene_modified();
+            }
+        }
+
+        // Handle quick entity creation from hierarchy panel
+        if let Some(quick_type) = editor_result.hierarchy.create_quick_entity {
+            use ui::hierarchy::QuickEntityType;
+            self.undo_history.push_state(scene);
+
+            let (name, add_components): (&str, Box<dyn FnOnce(&mut engine_scene::entity::Entity)>) = match quick_type {
+                QuickEntityType::Empty => ("Empty", Box::new(|_| {})),
+                QuickEntityType::Cube => ("Cube", Box::new(|entity| {
+                    entity.add_component(MeshRenderer::new("cube".to_string()));
+                })),
+                QuickEntityType::Sphere => ("Sphere", Box::new(|entity| {
+                    entity.add_component(MeshRenderer::new("sphere".to_string()));
+                })),
+                QuickEntityType::PointLight => ("Point Light", Box::new(|entity| {
+                    entity.add_component(Light::point([1.0, 1.0, 1.0], 1.0, 10.0));
+                })),
+                QuickEntityType::DirectionalLight => ("Directional Light", Box::new(|entity| {
+                    entity.add_component(Light::directional([0.0, -1.0, 0.0], [1.0, 1.0, 1.0], 1.0));
+                })),
+                QuickEntityType::Camera => ("Camera", Box::new(|entity| {
+                    entity.add_component(CameraComponent::default());
+                })),
+                QuickEntityType::ParticleEmitter => ("Particles", Box::new(|entity| {
+                    entity.add_component(ParticleEmitter::default());
+                })),
+            };
+
+            let new_id = scene.create_entity(name.to_string());
+            if let Some(entity) = scene.get_entity_mut(new_id) {
+                add_components(entity);
+            }
+            if let Some(ui) = self.ui.as_mut() {
+                ui.selected_entity = Some(new_id);
+                ui.mark_scene_modified();
+                ui.log_info(format!("Created {}", name));
             }
         }
 

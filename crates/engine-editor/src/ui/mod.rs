@@ -220,6 +220,9 @@ pub struct EditorUi {
     // Camera info for status bar
     pub camera_position: glam::Vec3,
     pub camera_distance: f32,
+    // Undo/redo info for statistics
+    pub undo_count: usize,
+    pub redo_count: usize,
 }
 
 #[derive(Clone)]
@@ -265,6 +268,8 @@ impl EditorUi {
             performance: PerformanceMetrics::new(),
             camera_position: glam::Vec3::ZERO,
             camera_distance: 15.0,
+            undo_count: 0,
+            redo_count: 0,
         }
     }
 
@@ -314,11 +319,15 @@ impl EditorUi {
     }
 
     /// Render the entire editor UI and return change indicators
-    pub fn render(&mut self, ctx: &Context, scene: &mut Scene, can_undo: bool, can_redo: bool) -> EditorResult {
+    pub fn render(&mut self, ctx: &Context, scene: &mut Scene, can_undo: bool, can_redo: bool, undo_count: usize, redo_count: usize) -> EditorResult {
         let mut result = EditorResult::default();
 
         // Update performance metrics
         self.performance.update();
+
+        // Store undo/redo counts for statistics
+        self.undo_count = undo_count;
+        self.redo_count = redo_count;
 
         // Menu bar
         self.render_menu_bar(ctx, scene, can_undo, can_redo, &mut result);
@@ -1062,6 +1071,24 @@ impl EditorUi {
                 ui.horizontal(|ui| {
                     ui.label("Distance:");
                     ui.label(format!("{:.1}", self.camera_distance));
+                });
+
+                ui.separator();
+                ui.heading("History");
+                ui.horizontal(|ui| {
+                    ui.label("Undo Stack:");
+                    ui.label(format!("{}", self.undo_count));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Redo Stack:");
+                    ui.label(format!("{}", self.redo_count));
+                });
+
+                ui.separator();
+                ui.heading("Session");
+                ui.horizontal(|ui| {
+                    ui.label("Recent Files:");
+                    ui.label(format!("{}", self.recent_files.len()));
                 });
             });
     }

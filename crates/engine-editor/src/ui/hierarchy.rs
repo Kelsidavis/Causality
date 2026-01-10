@@ -3,10 +3,23 @@
 use egui::{Context, ScrollArea};
 use engine_scene::{entity::EntityId, scene::Scene};
 
+/// Quick entity type for creation
+#[derive(Clone, Copy, Debug)]
+pub enum QuickEntityType {
+    Empty,
+    Cube,
+    Sphere,
+    PointLight,
+    DirectionalLight,
+    Camera,
+    ParticleEmitter,
+}
+
 /// Actions returned from the hierarchy panel
 #[derive(Default)]
 pub struct HierarchyAction {
     pub create_entity: Option<(String, Option<EntityId>)>,  // (name, parent)
+    pub create_quick_entity: Option<QuickEntityType>,       // Quick creation with preset
     pub delete_entity: Option<EntityId>,
     pub duplicate_entity: Option<EntityId>,
     pub reparent: Option<(EntityId, Option<EntityId>)>,     // (child, new_parent)
@@ -97,8 +110,29 @@ pub fn render_hierarchy_panel(
 
             ui.separator();
 
+            // Quick creation buttons
+            ui.horizontal(|ui| {
+                ui.label("Quick Add:");
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui.small_button("Cube").clicked() {
+                    action.create_quick_entity = Some(QuickEntityType::Cube);
+                }
+                if ui.small_button("Sphere").clicked() {
+                    action.create_quick_entity = Some(QuickEntityType::Sphere);
+                }
+                if ui.small_button("Light").clicked() {
+                    action.create_quick_entity = Some(QuickEntityType::PointLight);
+                }
+                if ui.small_button("Camera").clicked() {
+                    action.create_quick_entity = Some(QuickEntityType::Camera);
+                }
+            });
+
+            ui.add_space(5.0);
+
             // Create entity button
-            if ui.button("+ Create Entity").clicked() {
+            if ui.button("+ Create Empty Entity").clicked() {
                 state.show_create_dialog = true;
                 state.new_entity_parent = None;
                 state.new_entity_name = "New Entity".to_string();
