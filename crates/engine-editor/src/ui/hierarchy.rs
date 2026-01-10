@@ -26,6 +26,7 @@ pub struct HierarchyAction {
     pub reparent: Option<(EntityId, Option<EntityId>)>,     // (child, new_parent)
     pub rename_entity: Option<(EntityId, String)>,          // (entity, new_name)
     pub toggle_visibility: Option<EntityId>,                // Toggle entity visibility
+    pub show_all_hidden: bool,                              // Show all hidden entities
 }
 
 /// State for hierarchy UI (stored in EditorUi)
@@ -93,12 +94,25 @@ pub fn render_hierarchy_panel(
 
             // Show entity count and match count
             let total_count = scene.entity_count();
-            if state.search_filter.is_empty() {
-                ui.label(format!("{} entities", total_count));
-            } else {
-                let match_count = count_matching_entities(scene, &state.search_filter);
-                ui.label(format!("{} / {} entities", match_count, total_count));
-            }
+            let hidden_count = hidden_entities.len();
+            ui.horizontal(|ui| {
+                if state.search_filter.is_empty() {
+                    if hidden_count > 0 {
+                        ui.label(format!("{} entities ({} hidden)", total_count, hidden_count));
+                    } else {
+                        ui.label(format!("{} entities", total_count));
+                    }
+                } else {
+                    let match_count = count_matching_entities(scene, &state.search_filter);
+                    ui.label(format!("{} / {} entities", match_count, total_count));
+                }
+                // Show All button when entities are hidden
+                if hidden_count > 0 {
+                    if ui.small_button("Show All").clicked() {
+                        action.show_all_hidden = true;
+                    }
+                }
+            });
 
             ui.separator();
 

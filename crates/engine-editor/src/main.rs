@@ -2083,6 +2083,15 @@ impl EditorApp {
             }
         }
 
+        // Handle show all hidden entities action
+        if editor_result.hierarchy.show_all_hidden {
+            if let Some(ui) = self.ui.as_mut() {
+                let count = ui.hidden_count();
+                ui.show_all_entities();
+                log::info!("Revealed {} hidden entities", count);
+            }
+        }
+
         // Handle terrain/water regeneration from inspector changes
         if editor_result.inspector.terrain_changed {
             self.undo_history.push_state(scene);

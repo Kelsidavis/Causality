@@ -984,8 +984,13 @@ impl EditorUi {
                 ui.label(format!("{:.1}ms", self.performance.frame_time_ms));
                 ui.separator();
 
-                // Scene info
-                ui.label(format!("Entities: {}", scene.entity_count()));
+                // Scene info (with hidden count)
+                let hidden = self.hidden_count();
+                if hidden > 0 {
+                    ui.label(format!("Entities: {} ({} hidden)", scene.entity_count(), hidden));
+                } else {
+                    ui.label(format!("Entities: {}", scene.entity_count()));
+                }
                 ui.separator();
 
                 // Camera position
