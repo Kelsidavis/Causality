@@ -1118,6 +1118,9 @@ impl EditorUi {
                     ui.label("F");
                     ui.label("Focus on Selected Entity");
                     ui.end_row();
+                    ui.label("Home");
+                    ui.label("Reset Camera View");
+                    ui.end_row();
                     ui.label("Right Mouse Drag");
                     ui.label("Orbit Camera");
                     ui.end_row();
@@ -1129,6 +1132,20 @@ impl EditorUi {
                     ui.end_row();
                     ui.label("Left Click + Drag");
                     ui.label("Paint/Sculpt with Brush Tool");
+                    ui.end_row();
+                });
+
+                ui.separator();
+                ui.heading("Hierarchy");
+                egui::Grid::new("hierarchy_shortcuts").striped(true).show(ui, |ui| {
+                    ui.label("F2");
+                    ui.label("Rename Selected Entity");
+                    ui.end_row();
+                    ui.label("Double-click");
+                    ui.label("Rename Entity in Hierarchy");
+                    ui.end_row();
+                    ui.label("Right-click");
+                    ui.label("Context Menu");
                     ui.end_row();
                 });
 

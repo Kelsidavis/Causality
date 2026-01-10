@@ -10,6 +10,7 @@ pub struct HierarchyAction {
     pub delete_entity: Option<EntityId>,
     pub duplicate_entity: Option<EntityId>,
     pub reparent: Option<(EntityId, Option<EntityId>)>,     // (child, new_parent)
+    pub rename_entity: Option<(EntityId, String)>,          // (entity, new_name)
 }
 
 /// State for hierarchy UI (stored in EditorUi)
@@ -24,6 +25,10 @@ pub struct HierarchyState {
     pub search_filter: String,
     /// Expanded entity nodes (for tree view)
     pub expanded_entities: std::collections::HashSet<EntityId>,
+    /// Entity currently being renamed (double-click to edit)
+    pub editing_entity: Option<EntityId>,
+    /// Temporary name while editing
+    pub editing_name: String,
 }
 
 impl Default for HierarchyState {
@@ -37,6 +42,8 @@ impl Default for HierarchyState {
             context_menu_entity: None,
             search_filter: String::new(),
             expanded_entities: std::collections::HashSet::new(),
+            editing_entity: None,
+            editing_name: String::new(),
         }
     }
 }
@@ -214,6 +221,9 @@ fn render_entity_tree(
     // Check if entity name directly matches
     let name_matches = entity_name.to_lowercase().contains(&search_filter);
 
+    // Check if this entity is being edited
+    let is_editing = state.editing_entity == Some(entity_id);
+
     // Horizontal layout for indent + label
     ui.horizontal(|ui| {
         // Indentation for hierarchy depth
@@ -233,65 +243,113 @@ fn render_entity_tree(
             ui.add_space(20.0); // Space for alignment
         }
 
-        // Highlight matching entities
-        let label_text = if !search_filter.is_empty() && name_matches {
-            egui::RichText::new(&entity_name).color(egui::Color32::YELLOW)
+        if is_editing {
+            // Show text input for editing
+            let response = ui.text_edit_singleline(&mut state.editing_name);
+
+            // Request focus on first frame
+            if response.gained_focus() || state.editing_name.is_empty() {
+                // Name was just set, focus should be requested
+            }
+            response.request_focus();
+
+            // Confirm on Enter
+            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let new_name = state.editing_name.trim().to_string();
+                if !new_name.is_empty() {
+                    action.rename_entity = Some((entity_id, new_name));
+                }
+                state.editing_entity = None;
+                state.editing_name.clear();
+            }
+            // Cancel on Escape
+            else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                state.editing_entity = None;
+                state.editing_name.clear();
+            }
+            // Confirm on click outside (lost focus without Enter)
+            else if response.lost_focus() {
+                let new_name = state.editing_name.trim().to_string();
+                if !new_name.is_empty() {
+                    action.rename_entity = Some((entity_id, new_name));
+                }
+                state.editing_entity = None;
+                state.editing_name.clear();
+            }
         } else {
-            egui::RichText::new(&entity_name)
-        };
+            // Highlight matching entities
+            let label_text = if !search_filter.is_empty() && name_matches {
+                egui::RichText::new(&entity_name).color(egui::Color32::YELLOW)
+            } else {
+                egui::RichText::new(&entity_name)
+            };
 
-        let response = ui.selectable_label(is_selected, label_text);
-        if response.clicked() {
-            *selected_entity = Some(entity_id);
-        }
+            let response = ui.selectable_label(is_selected, label_text);
 
-        // Right-click context menu
-        response.context_menu(|ui| {
-            if ui.button("Duplicate").clicked() {
-                action.duplicate_entity = Some(entity_id);
-                ui.close_menu();
+            // Single click to select
+            if response.clicked() {
+                *selected_entity = Some(entity_id);
             }
-            if ui.button("Create Child").clicked() {
-                state.show_create_dialog = true;
-                state.new_entity_parent = Some(entity_id);
-                state.new_entity_name = "New Entity".to_string();
-                ui.close_menu();
+
+            // Double-click to start editing
+            if response.double_clicked() {
+                state.editing_entity = Some(entity_id);
+                state.editing_name = entity_name.clone();
             }
-            ui.separator();
-            if has_children {
-                if ui.button("Expand All").clicked() {
-                    expand_all_children(scene, entity_id, &mut state.expanded_entities);
+
+            // Right-click context menu
+            response.context_menu(|ui| {
+                if ui.button("Rename").clicked() {
+                    state.editing_entity = Some(entity_id);
+                    state.editing_name = entity_name.clone();
                     ui.close_menu();
                 }
-                if ui.button("Collapse All").clicked() {
-                    collapse_all_children(scene, entity_id, &mut state.expanded_entities);
+                if ui.button("Duplicate").clicked() {
+                    action.duplicate_entity = Some(entity_id);
+                    ui.close_menu();
+                }
+                if ui.button("Create Child").clicked() {
+                    state.show_create_dialog = true;
+                    state.new_entity_parent = Some(entity_id);
+                    state.new_entity_name = "New Entity".to_string();
                     ui.close_menu();
                 }
                 ui.separator();
-            }
-            if ui.button("Delete").clicked() {
-                state.show_delete_confirm = true;
-                state.entity_to_delete = Some(entity_id);
-                ui.close_menu();
-            }
-            ui.separator();
-            ui.menu_button("Set Parent", |ui| {
-                if ui.button("None (root)").clicked() {
-                    state.context_menu_entity = Some(entity_id);
+                if has_children {
+                    if ui.button("Expand All").clicked() {
+                        expand_all_children(scene, entity_id, &mut state.expanded_entities);
+                        ui.close_menu();
+                    }
+                    if ui.button("Collapse All").clicked() {
+                        collapse_all_children(scene, entity_id, &mut state.expanded_entities);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                }
+                if ui.button("Delete").clicked() {
+                    state.show_delete_confirm = true;
+                    state.entity_to_delete = Some(entity_id);
                     ui.close_menu();
                 }
                 ui.separator();
-                // List all entities as potential parents (except self and descendants)
-                for potential_parent in scene.entities() {
-                    if potential_parent.id != entity_id && !is_descendant(scene, potential_parent.id, entity_id) {
-                        if ui.button(&potential_parent.name).clicked() {
-                            state.context_menu_entity = Some(entity_id);
-                            ui.close_menu();
+                ui.menu_button("Set Parent", |ui| {
+                    if ui.button("None (root)").clicked() {
+                        state.context_menu_entity = Some(entity_id);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    // List all entities as potential parents (except self and descendants)
+                    for potential_parent in scene.entities() {
+                        if potential_parent.id != entity_id && !is_descendant(scene, potential_parent.id, entity_id) {
+                            if ui.button(&potential_parent.name).clicked() {
+                                state.context_menu_entity = Some(entity_id);
+                                ui.close_menu();
+                            }
                         }
                     }
-                }
+                });
             });
-        });
+        }
     });
 
     // Render children if expanded (or if searching and children match)

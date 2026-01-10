@@ -1995,6 +1995,17 @@ impl EditorApp {
             }
         }
 
+        // Handle entity renaming from hierarchy panel
+        if let Some((entity_id, new_name)) = editor_result.hierarchy.rename_entity {
+            self.undo_history.push_state(scene);
+            if let Some(entity) = scene.get_entity_mut(entity_id) {
+                entity.name = new_name;
+            }
+            if let Some(ui) = self.ui.as_mut() {
+                ui.mark_scene_modified();
+            }
+        }
+
         // Handle terrain/water regeneration from inspector changes
         if editor_result.inspector.terrain_changed {
             self.undo_history.push_state(scene);
@@ -2421,6 +2432,25 @@ impl ApplicationHandler for EditorApp {
                 if let Some(ui) = &mut self.ui {
                     ui.show_shortcuts_help = !ui.show_shortcuts_help;
                 }
+            }
+            // F2 - Rename selected entity
+            if key_code == KeyCode::F2 {
+                if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            ui.hierarchy_state.editing_entity = Some(entity_id);
+                            ui.hierarchy_state.editing_name = entity.name.clone();
+                        }
+                    }
+                }
+            }
+            // Home - Reset camera view to default position
+            if key_code == KeyCode::Home {
+                self.viewport_controls.orbit_distance = 15.0;
+                self.viewport_controls.orbit_yaw = 0.3;
+                self.viewport_controls.orbit_pitch = 0.4;
+                self.viewport_controls.pan_offset = glam::Vec3::new(0.0, 5.0, 0.0);
+                log::info!("Camera view reset");
             }
             // Escape - Deselect entity or exit
             if key_code == KeyCode::Escape {
