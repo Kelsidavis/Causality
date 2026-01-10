@@ -5,6 +5,7 @@ pub mod hierarchy;
 pub mod inspector;
 pub mod viewport;
 
+use std::collections::HashSet;
 use egui::Context;
 use engine_scene::{entity::EntityId, scene::Scene};
 
@@ -223,6 +224,8 @@ pub struct EditorUi {
     // Undo/redo info for statistics
     pub undo_count: usize,
     pub redo_count: usize,
+    // Hidden entities (editor-only, not saved to scene)
+    pub hidden_entities: HashSet<EntityId>,
 }
 
 #[derive(Clone)]
@@ -270,7 +273,22 @@ impl EditorUi {
             camera_distance: 15.0,
             undo_count: 0,
             redo_count: 0,
+            hidden_entities: HashSet::new(),
         }
+    }
+
+    /// Toggle visibility of an entity
+    pub fn toggle_entity_visibility(&mut self, entity_id: EntityId) {
+        if self.hidden_entities.contains(&entity_id) {
+            self.hidden_entities.remove(&entity_id);
+        } else {
+            self.hidden_entities.insert(entity_id);
+        }
+    }
+
+    /// Check if an entity is visible
+    pub fn is_entity_visible(&self, entity_id: EntityId) -> bool {
+        !self.hidden_entities.contains(&entity_id)
     }
 
     /// Update camera info for status bar display
@@ -342,6 +360,7 @@ impl EditorUi {
                 scene,
                 &mut self.selected_entity,
                 &mut self.hierarchy_state,
+                &self.hidden_entities,
             );
         }
 

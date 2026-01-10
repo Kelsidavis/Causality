@@ -1469,8 +1469,14 @@ impl EditorApp {
                 shadow_pass.set_pipeline(&shadow_map.render_pipeline);
                 shadow_pass.set_bind_group(0, &shadow_map.bind_group, &[]);
 
-                // Render all meshes to shadow map
+                // Render all meshes to shadow map (skip hidden entities)
                 for entity in scene.entities() {
+                    // Skip hidden entities
+                    if let Some(ui) = &self.ui {
+                        if ui.hidden_entities.contains(&entity.id) {
+                            continue;
+                        }
+                    }
                     if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
                         if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&mesh_renderer.mesh_path) {
                             if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
@@ -1543,9 +1549,15 @@ impl EditorApp {
             }
         }
 
-        // Render all entities with textures
+        // Render all entities with textures (skip hidden entities)
         let mut first_mesh = wgpu_state.skybox.is_none();
         for entity in scene.entities() {
+            // Skip hidden entities
+            if let Some(ui) = &self.ui {
+                if ui.hidden_entities.contains(&entity.id) {
+                    continue;
+                }
+            }
             if let Some(mesh_renderer) = entity.get_component::<MeshRenderer>() {
                 if let Some(mesh_handle) = wgpu_state.mesh_manager.get_handle(&mesh_renderer.mesh_path) {
                     if let Some(gpu_mesh) = wgpu_state.mesh_manager.get_mesh(mesh_handle) {
@@ -1642,12 +1654,18 @@ impl EditorApp {
             }
         }
 
-        // Render foliage (instanced vegetation)
+        // Render foliage (instanced vegetation, skip hidden entities)
         if let Some(ref mut foliage_renderer) = wgpu_state.foliage_renderer {
             // Collect all foliage instances grouped by vegetation type
             let mut foliage_by_type: std::collections::HashMap<String, Vec<FoliageInstanceGpu>> = std::collections::HashMap::new();
 
             for entity in scene.entities() {
+                // Skip hidden entities
+                if let Some(ui) = &self.ui {
+                    if ui.hidden_entities.contains(&entity.id) {
+                        continue;
+                    }
+                }
                 if let Some(foliage) = entity.get_component::<Foliage>() {
                     let world_matrix = scene.world_matrix(entity.id);
                     let color_tint = Vec3::from(foliage.color_tint);
@@ -1721,9 +1739,15 @@ impl EditorApp {
             }
         }
 
-        // Render water (transparent, after opaque objects)
+        // Render water (transparent, after opaque objects, skip hidden entities)
         if let Some(ref water_renderer) = wgpu_state.water_renderer {
             for entity in scene.entities() {
+                // Skip hidden entities
+                if let Some(ui) = &self.ui {
+                    if ui.hidden_entities.contains(&entity.id) {
+                        continue;
+                    }
+                }
                 if let Some(water) = entity.get_component::<Water>() {
                     // Update water uniforms with flow per entity
                     water_renderer.update_uniforms(
@@ -1864,8 +1888,14 @@ impl EditorApp {
                 camera_up,
             );
 
-            // Render each particle system
+            // Render each particle system (skip hidden entities)
             for (entity_id, particle_system) in &wgpu_state.particle_systems {
+                // Skip hidden entities
+                if let Some(ui) = &self.ui {
+                    if ui.hidden_entities.contains(entity_id) {
+                        continue;
+                    }
+                }
                 if let Some(compute_pipeline) = wgpu_state.particle_compute_pipelines.get(entity_id) {
                     let particle_count = particle_system.particles.len() as u32;
                     let alive_count = particle_system.particles.iter().filter(|p| p.is_alive()).count();
@@ -2043,6 +2073,13 @@ impl EditorApp {
             }
             if let Some(ui) = self.ui.as_mut() {
                 ui.mark_scene_modified();
+            }
+        }
+
+        // Handle visibility toggle from hierarchy panel
+        if let Some(entity_id) = editor_result.hierarchy.toggle_visibility {
+            if let Some(ui) = self.ui.as_mut() {
+                ui.toggle_entity_visibility(entity_id);
             }
         }
 

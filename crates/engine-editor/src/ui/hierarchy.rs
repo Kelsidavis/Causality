@@ -1,5 +1,6 @@
 // Hierarchy panel - shows scene graph tree
 
+use std::collections::HashSet;
 use egui::{Context, ScrollArea};
 use engine_scene::{entity::EntityId, scene::Scene};
 
@@ -24,6 +25,7 @@ pub struct HierarchyAction {
     pub duplicate_entity: Option<EntityId>,
     pub reparent: Option<(EntityId, Option<EntityId>)>,     // (child, new_parent)
     pub rename_entity: Option<(EntityId, String)>,          // (entity, new_name)
+    pub toggle_visibility: Option<EntityId>,                // Toggle entity visibility
 }
 
 /// State for hierarchy UI (stored in EditorUi)
@@ -66,6 +68,7 @@ pub fn render_hierarchy_panel(
     scene: &Scene,
     selected_entity: &mut Option<EntityId>,
     state: &mut HierarchyState,
+    hidden_entities: &HashSet<EntityId>,
 ) -> HierarchyAction {
     let mut action = HierarchyAction::default();
 
@@ -145,7 +148,7 @@ pub fn render_hierarchy_panel(
                 // Show all root entities (entities without parents)
                 for entity in scene.entities() {
                     if entity.parent.is_none() {
-                        render_entity_tree(ui, scene, entity.id, selected_entity, state, &mut action, 0);
+                        render_entity_tree(ui, scene, entity.id, selected_entity, state, hidden_entities, &mut action, 0);
                     }
                 }
             });
@@ -272,12 +275,15 @@ fn render_entity_tree(
     entity_id: EntityId,
     selected_entity: &mut Option<EntityId>,
     state: &mut HierarchyState,
+    hidden_entities: &HashSet<EntityId>,
     action: &mut HierarchyAction,
     depth: usize,
 ) {
     let Some(entity) = scene.get_entity(entity_id) else {
         return;
     };
+
+    let is_hidden = hidden_entities.contains(&entity_id);
 
     // Check if this entity or any descendants match the search filter
     let search_filter = state.search_filter.to_lowercase();
@@ -304,6 +310,15 @@ fn render_entity_tree(
     ui.horizontal(|ui| {
         // Indentation for hierarchy depth
         ui.add_space(depth as f32 * 16.0);
+
+        // Visibility toggle (eye icon)
+        let vis_icon = if is_hidden { "○" } else { "●" };
+        let vis_color = if is_hidden { egui::Color32::GRAY } else { egui::Color32::WHITE };
+        let vis_btn = ui.add(egui::Button::new(egui::RichText::new(vis_icon).color(vis_color)).frame(false).min_size(egui::vec2(16.0, 16.0)));
+        if vis_btn.clicked() {
+            action.toggle_visibility = Some(entity_id);
+        }
+        vis_btn.on_hover_text(if is_hidden { "Show entity" } else { "Hide entity" });
 
         // Expand/collapse button for entities with children
         if has_children {
@@ -353,8 +368,10 @@ fn render_entity_tree(
                 state.editing_name.clear();
             }
         } else {
-            // Highlight matching entities
-            let label_text = if !search_filter.is_empty() && name_matches {
+            // Highlight matching entities, dim hidden entities
+            let label_text = if is_hidden {
+                egui::RichText::new(&entity_name).color(egui::Color32::DARK_GRAY)
+            } else if !search_filter.is_empty() && name_matches {
                 egui::RichText::new(&entity_name).color(egui::Color32::YELLOW)
             } else {
                 egui::RichText::new(&entity_name)
@@ -456,7 +473,7 @@ fn render_entity_tree(
     // Render children if expanded (or if searching and children match)
     if has_children && (is_expanded || !search_filter.is_empty()) {
         for child_id in children {
-            render_entity_tree(ui, scene, child_id, selected_entity, state, action, depth + 1);
+            render_entity_tree(ui, scene, child_id, selected_entity, state, hidden_entities, action, depth + 1);
         }
     }
 }
