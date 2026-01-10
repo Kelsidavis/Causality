@@ -1015,12 +1015,20 @@ impl EditorUi {
                 ui.label(format!("{:.1}ms", self.performance.frame_time_ms));
                 ui.separator();
 
-                // Scene info (with hidden count)
+                // Scene info (with hidden/locked count)
                 let hidden = self.hidden_count();
+                let locked = self.locked_count();
+                let mut status_parts = Vec::new();
                 if hidden > 0 {
-                    ui.label(format!("Entities: {} ({} hidden)", scene.entity_count(), hidden));
-                } else {
+                    status_parts.push(format!("{} hidden", hidden));
+                }
+                if locked > 0 {
+                    status_parts.push(format!("{} locked", locked));
+                }
+                if status_parts.is_empty() {
                     ui.label(format!("Entities: {}", scene.entity_count()));
+                } else {
+                    ui.label(format!("Entities: {} ({})", scene.entity_count(), status_parts.join(", ")));
                 }
                 ui.separator();
 

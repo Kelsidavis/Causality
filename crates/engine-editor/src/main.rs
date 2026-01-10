@@ -2099,6 +2099,15 @@ impl EditorApp {
             }
         }
 
+        // Handle unlock all entities action
+        if editor_result.hierarchy.unlock_all {
+            if let Some(ui) = self.ui.as_mut() {
+                let count = ui.locked_count();
+                ui.unlock_all_entities();
+                log::info!("Unlocked {} entities", count);
+            }
+        }
+
         // Handle terrain/water regeneration from inspector changes
         if editor_result.inspector.terrain_changed {
             self.undo_history.push_state(scene);

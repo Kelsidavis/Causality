@@ -28,6 +28,7 @@ pub struct HierarchyAction {
     pub toggle_visibility: Option<EntityId>,                // Toggle entity visibility
     pub show_all_hidden: bool,                              // Show all hidden entities
     pub toggle_lock: Option<EntityId>,                      // Toggle entity lock
+    pub unlock_all: bool,                                   // Unlock all entities
 }
 
 /// Component type filter for hierarchy
@@ -131,24 +132,42 @@ pub fn render_hierarchy_panel(
             // Show entity count and match count
             let total_count = scene.entity_count();
             let hidden_count = hidden_entities.len();
+            let locked_count = locked_entities.len();
             ui.horizontal(|ui| {
                 if state.search_filter.is_empty() {
+                    let mut status_parts = Vec::new();
                     if hidden_count > 0 {
-                        ui.label(format!("{} entities ({} hidden)", total_count, hidden_count));
-                    } else {
+                        status_parts.push(format!("{} hidden", hidden_count));
+                    }
+                    if locked_count > 0 {
+                        status_parts.push(format!("{} locked", locked_count));
+                    }
+                    if status_parts.is_empty() {
                         ui.label(format!("{} entities", total_count));
+                    } else {
+                        ui.label(format!("{} entities ({})", total_count, status_parts.join(", ")));
                     }
                 } else {
                     let match_count = count_matching_entities(scene, &state.search_filter);
                     ui.label(format!("{} / {} entities", match_count, total_count));
                 }
-                // Show All button when entities are hidden
-                if hidden_count > 0 {
-                    if ui.small_button("Show All").clicked() {
-                        action.show_all_hidden = true;
-                    }
-                }
             });
+
+            // Show All / Unlock All buttons when needed
+            if hidden_count > 0 || locked_count > 0 {
+                ui.horizontal(|ui| {
+                    if hidden_count > 0 {
+                        if ui.small_button("Show All").clicked() {
+                            action.show_all_hidden = true;
+                        }
+                    }
+                    if locked_count > 0 {
+                        if ui.small_button("Unlock All").clicked() {
+                            action.unlock_all = true;
+                        }
+                    }
+                });
+            }
 
             // Expand/Collapse all buttons and component filter
             ui.horizontal(|ui| {
