@@ -1289,6 +1289,12 @@ impl EditorUi {
                     ui.label("P");
                     ui.label("Select Parent Entity");
                     ui.end_row();
+                    ui.label("[");
+                    ui.label("Select First Child");
+                    ui.end_row();
+                    ui.label("]");
+                    ui.label("Select Next Sibling");
+                    ui.end_row();
                     ui.label("Ctrl+Shift+N");
                     ui.label("Create New Entity");
                     ui.end_row();

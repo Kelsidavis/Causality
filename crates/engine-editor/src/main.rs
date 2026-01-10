@@ -2428,6 +2428,58 @@ impl ApplicationHandler for EditorApp {
                     }
                 }
             }
+            // [ - Select first child entity
+            if key_code == KeyCode::BracketLeft && !self.modifiers.control_key() {
+                if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            if let Some(&first_child) = entity.children.first() {
+                                ui.selected_entity = Some(first_child);
+                                // Expand the current entity so child is visible
+                                ui.hierarchy_state.expanded_entities.insert(entity_id);
+                                if let Some(child) = scene.get_entity(first_child) {
+                                    log::info!("Selected first child: {}", child.name);
+                                }
+                            } else {
+                                log::info!("Entity has no children");
+                            }
+                        }
+                    }
+                }
+            }
+            // ] - Select next sibling entity
+            if key_code == KeyCode::BracketRight && !self.modifiers.control_key() {
+                if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        if let Some(entity) = scene.get_entity(entity_id) {
+                            if let Some(parent_id) = entity.parent {
+                                // Get siblings (children of parent)
+                                if let Some(parent) = scene.get_entity(parent_id) {
+                                    if let Some(idx) = parent.children.iter().position(|&id| id == entity_id) {
+                                        // Select next sibling (wrap around)
+                                        let next_idx = (idx + 1) % parent.children.len();
+                                        let next_sibling = parent.children[next_idx];
+                                        ui.selected_entity = Some(next_sibling);
+                                        if let Some(sibling) = scene.get_entity(next_sibling) {
+                                            log::info!("Selected sibling: {}", sibling.name);
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No parent, try next root entity
+                                let roots: Vec<_> = scene.entities()
+                                    .filter(|e| e.parent.is_none())
+                                    .collect();
+                                if let Some(idx) = roots.iter().position(|e| e.id == entity_id) {
+                                    let next_idx = (idx + 1) % roots.len();
+                                    ui.selected_entity = Some(roots[next_idx].id);
+                                    log::info!("Selected next root: {}", roots[next_idx].name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // Ctrl+C - Copy selected entity
             if self.modifiers.control_key() && key_code == KeyCode::KeyC {
                 if let (Some(scene), Some(ui)) = (&self.scene, &self.ui) {
