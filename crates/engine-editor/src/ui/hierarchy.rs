@@ -29,6 +29,37 @@ pub struct HierarchyAction {
     pub show_all_hidden: bool,                              // Show all hidden entities
 }
 
+/// Component type filter for hierarchy
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum ComponentFilter {
+    #[default]
+    All,
+    Meshes,
+    Lights,
+    Cameras,
+    Particles,
+    Water,
+    Terrain,
+    Foliage,
+    Empty,
+}
+
+impl ComponentFilter {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ComponentFilter::All => "All",
+            ComponentFilter::Meshes => "Meshes",
+            ComponentFilter::Lights => "Lights",
+            ComponentFilter::Cameras => "Cameras",
+            ComponentFilter::Particles => "Particles",
+            ComponentFilter::Water => "Water",
+            ComponentFilter::Terrain => "Terrain",
+            ComponentFilter::Foliage => "Foliage",
+            ComponentFilter::Empty => "Empty",
+        }
+    }
+}
+
 /// State for hierarchy UI (stored in EditorUi)
 pub struct HierarchyState {
     pub show_create_dialog: bool,
@@ -45,6 +76,8 @@ pub struct HierarchyState {
     pub editing_entity: Option<EntityId>,
     /// Temporary name while editing
     pub editing_name: String,
+    /// Component type filter
+    pub component_filter: ComponentFilter,
 }
 
 impl Default for HierarchyState {
@@ -60,6 +93,7 @@ impl Default for HierarchyState {
             expanded_entities: std::collections::HashSet::new(),
             editing_entity: None,
             editing_name: String::new(),
+            component_filter: ComponentFilter::default(),
         }
     }
 }
@@ -114,7 +148,7 @@ pub fn render_hierarchy_panel(
                 }
             });
 
-            // Expand/Collapse all buttons
+            // Expand/Collapse all buttons and component filter
             ui.horizontal(|ui| {
                 if ui.small_button("Expand All").clicked() {
                     for entity in scene.entities() {
@@ -126,6 +160,23 @@ pub fn render_hierarchy_panel(
                 if ui.small_button("Collapse All").clicked() {
                     state.expanded_entities.clear();
                 }
+                ui.separator();
+                // Component type filter dropdown
+                egui::ComboBox::from_id_salt("component_filter")
+                    .selected_text(state.component_filter.label())
+                    .width(80.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::All, "All");
+                        ui.separator();
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Meshes, "Meshes");
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Lights, "Lights");
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Cameras, "Cameras");
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Particles, "Particles");
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Water, "Water");
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Terrain, "Terrain");
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Foliage, "Foliage");
+                        ui.selectable_value(&mut state.component_filter, ComponentFilter::Empty, "Empty");
+                    });
             });
 
             ui.separator();
@@ -319,6 +370,12 @@ fn render_entity_tree(
 
     // Skip rendering if doesn't match search and no children match
     if !matches_search {
+        return;
+    }
+
+    // Check component type filter
+    let matches_component_filter = entity_or_descendants_match_filter(scene, entity_id, state.component_filter);
+    if !matches_component_filter {
         return;
     }
 
@@ -564,6 +621,48 @@ fn count_matching_entities(scene: &Scene, search_filter: &str) -> usize {
     scene.entities()
         .filter(|e| e.name.to_lowercase().contains(&filter))
         .count()
+}
+
+/// Check if an entity matches the component filter
+fn entity_matches_component_filter(entity: &engine_scene::entity::Entity, filter: ComponentFilter) -> bool {
+    use engine_scene::components::*;
+    match filter {
+        ComponentFilter::All => true,
+        ComponentFilter::Meshes => entity.has_component::<MeshRenderer>(),
+        ComponentFilter::Lights => entity.has_component::<Light>(),
+        ComponentFilter::Cameras => entity.has_component::<Camera>(),
+        ComponentFilter::Particles => entity.has_component::<ParticleEmitter>(),
+        ComponentFilter::Water => entity.has_component::<Water>() || entity.has_component::<TerrainWater>(),
+        ComponentFilter::Terrain => entity.has_component::<TerrainGenerator>(),
+        ComponentFilter::Foliage => entity.has_component::<Foliage>(),
+        ComponentFilter::Empty => !entity.has_component::<MeshRenderer>()
+            && !entity.has_component::<Light>()
+            && !entity.has_component::<Camera>()
+            && !entity.has_component::<ParticleEmitter>()
+            && !entity.has_component::<Water>()
+            && !entity.has_component::<TerrainWater>()
+            && !entity.has_component::<TerrainGenerator>()
+            && !entity.has_component::<Foliage>(),
+    }
+}
+
+/// Check if an entity or any of its descendants match the component filter
+fn entity_or_descendants_match_filter(scene: &Scene, entity_id: EntityId, filter: ComponentFilter) -> bool {
+    if filter == ComponentFilter::All {
+        return true;
+    }
+    if let Some(entity) = scene.get_entity(entity_id) {
+        if entity_matches_component_filter(entity, filter) {
+            return true;
+        }
+        // Check children
+        for child_id in &entity.children {
+            if entity_or_descendants_match_filter(scene, *child_id, filter) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Expand all parent entities of matching entities
