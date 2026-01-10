@@ -1177,6 +1177,12 @@ impl EditorUi {
                 ui.separator();
                 ui.heading("Hierarchy");
                 egui::Grid::new("hierarchy_shortcuts").striped(true).show(ui, |ui| {
+                    ui.label("Up/Down");
+                    ui.label("Navigate Entities");
+                    ui.end_row();
+                    ui.label("Left/Right");
+                    ui.label("Collapse/Expand Node");
+                    ui.end_row();
                     ui.label("Ctrl+Shift+N");
                     ui.label("Create New Entity");
                     ui.end_row();
@@ -1188,9 +1194,6 @@ impl EditorUi {
                     ui.end_row();
                     ui.label("Double-click");
                     ui.label("Rename Entity in Hierarchy");
-                    ui.end_row();
-                    ui.label("Right-click");
-                    ui.label("Context Menu");
                     ui.end_row();
                 });
 

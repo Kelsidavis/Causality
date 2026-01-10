@@ -99,6 +99,48 @@ pub fn render_hierarchy_panel(
 
             ui.separator();
 
+            // Build list of visible entities for keyboard navigation
+            let visible_entities = get_visible_entities(scene, state);
+
+            // Handle keyboard navigation (only when not editing)
+            if state.editing_entity.is_none() {
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                    if let Some(current) = *selected_entity {
+                        // Find current index and move to next
+                        if let Some(idx) = visible_entities.iter().position(|&id| id == current) {
+                            if idx + 1 < visible_entities.len() {
+                                *selected_entity = Some(visible_entities[idx + 1]);
+                            }
+                        }
+                    } else if !visible_entities.is_empty() {
+                        *selected_entity = Some(visible_entities[0]);
+                    }
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                    if let Some(current) = *selected_entity {
+                        if let Some(idx) = visible_entities.iter().position(|&id| id == current) {
+                            if idx > 0 {
+                                *selected_entity = Some(visible_entities[idx - 1]);
+                            }
+                        }
+                    } else if !visible_entities.is_empty() {
+                        *selected_entity = Some(visible_entities[visible_entities.len() - 1]);
+                    }
+                }
+                // Right arrow to expand
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+                    if let Some(current) = *selected_entity {
+                        state.expanded_entities.insert(current);
+                    }
+                }
+                // Left arrow to collapse
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+                    if let Some(current) = *selected_entity {
+                        state.expanded_entities.remove(&current);
+                    }
+                }
+            }
+
             ScrollArea::vertical().show(ui, |ui| {
                 // Show all root entities (entities without parents)
                 for entity in scene.entities() {
@@ -500,6 +542,51 @@ fn collapse_all_children(
     if let Some(entity) = scene.get_entity(entity_id) {
         for child_id in &entity.children {
             collapse_all_children(scene, *child_id, expanded);
+        }
+    }
+}
+
+/// Get visible entities in display order for keyboard navigation
+fn get_visible_entities(scene: &Scene, state: &HierarchyState) -> Vec<EntityId> {
+    let mut result = Vec::new();
+    let search_filter = state.search_filter.to_lowercase();
+
+    // Collect root entities and recurse
+    for entity in scene.entities() {
+        if entity.parent.is_none() {
+            collect_visible_entities(scene, entity.id, state, &search_filter, &mut result);
+        }
+    }
+
+    result
+}
+
+/// Helper to collect visible entities recursively
+fn collect_visible_entities(
+    scene: &Scene,
+    entity_id: EntityId,
+    state: &HierarchyState,
+    search_filter: &str,
+    result: &mut Vec<EntityId>,
+) {
+    let Some(entity) = scene.get_entity(entity_id) else {
+        return;
+    };
+
+    // Check if this entity matches search (if filtering)
+    let matches = search_filter.is_empty() || entity_matches_search(scene, entity_id, search_filter);
+    if !matches {
+        return;
+    }
+
+    // Add this entity
+    result.push(entity_id);
+
+    // Add children if expanded (or if searching)
+    let is_expanded = state.expanded_entities.contains(&entity_id);
+    if is_expanded || !search_filter.is_empty() {
+        for child_id in &entity.children {
+            collect_visible_entities(scene, *child_id, state, search_filter, result);
         }
     }
 }
