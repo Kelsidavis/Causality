@@ -291,6 +291,26 @@ impl EditorUi {
         !self.hidden_entities.contains(&entity_id)
     }
 
+    /// Show all hidden entities
+    pub fn show_all_entities(&mut self) {
+        self.hidden_entities.clear();
+    }
+
+    /// Hide all entities except the specified one
+    pub fn hide_all_except(&mut self, scene: &Scene, entity_id: EntityId) {
+        self.hidden_entities.clear();
+        for entity in scene.entities() {
+            if entity.id != entity_id {
+                self.hidden_entities.insert(entity.id);
+            }
+        }
+    }
+
+    /// Get number of hidden entities
+    pub fn hidden_count(&self) -> usize {
+        self.hidden_entities.len()
+    }
+
     /// Update camera info for status bar display
     pub fn update_camera_info(&mut self, position: glam::Vec3, distance: f32) {
         self.camera_position = position;
@@ -1188,6 +1208,12 @@ impl EditorUi {
                     ui.end_row();
                     ui.label("H");
                     ui.label("Toggle Entity Visibility");
+                    ui.end_row();
+                    ui.label("Shift+H");
+                    ui.label("Show All Hidden Entities");
+                    ui.end_row();
+                    ui.label("Alt+H");
+                    ui.label("Hide All Except Selected");
                     ui.end_row();
                     ui.label("Home");
                     ui.label("Reset Camera View");

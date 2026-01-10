@@ -2359,12 +2359,29 @@ impl ApplicationHandler for EditorApp {
                 }
             }
             // H - Toggle visibility of selected entity
-            if key_code == KeyCode::KeyH && !self.modifiers.control_key() {
+            if key_code == KeyCode::KeyH && !self.modifiers.control_key() && !self.modifiers.shift_key() && !self.modifiers.alt_key() {
                 if let Some(ui) = &mut self.ui {
                     if let Some(entity_id) = ui.selected_entity {
                         ui.toggle_entity_visibility(entity_id);
                         let visible = ui.is_entity_visible(entity_id);
                         log::info!("{} entity visibility", if visible { "Showing" } else { "Hiding" });
+                    }
+                }
+            }
+            // Shift+H - Show all hidden entities
+            if key_code == KeyCode::KeyH && self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() {
+                if let Some(ui) = &mut self.ui {
+                    let count = ui.hidden_count();
+                    ui.show_all_entities();
+                    log::info!("Revealed {} hidden entities", count);
+                }
+            }
+            // Alt+H - Hide all entities except selected
+            if key_code == KeyCode::KeyH && self.modifiers.alt_key() && !self.modifiers.control_key() && !self.modifiers.shift_key() {
+                if let (Some(scene), Some(ui)) = (&self.scene, &mut self.ui) {
+                    if let Some(entity_id) = ui.selected_entity {
+                        ui.hide_all_except(scene, entity_id);
+                        log::info!("Hiding all entities except selected");
                     }
                 }
             }
