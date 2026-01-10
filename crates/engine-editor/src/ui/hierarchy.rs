@@ -328,6 +328,26 @@ fn render_entity_tree(
     let children = entity.children.clone();
     let is_expanded = state.expanded_entities.contains(&entity_id);
 
+    // Get component icon for the entity
+    use engine_scene::components::*;
+    let component_icon = if entity.has_component::<Light>() {
+        "☀" // Light
+    } else if entity.has_component::<Camera>() {
+        "◎" // Camera
+    } else if entity.has_component::<ParticleEmitter>() {
+        "✧" // Particles
+    } else if entity.has_component::<Water>() || entity.has_component::<TerrainWater>() {
+        "≈" // Water
+    } else if entity.has_component::<TerrainGenerator>() {
+        "▦" // Terrain
+    } else if entity.has_component::<Foliage>() {
+        "🌿" // Foliage (will render as two chars on some fonts, but OK)
+    } else if entity.has_component::<MeshRenderer>() {
+        "◆" // Mesh
+    } else {
+        "○" // Empty entity
+    };
+
     // Check if entity name directly matches
     let name_matches = entity_name.to_lowercase().contains(&search_filter);
 
@@ -397,12 +417,14 @@ fn render_entity_tree(
             }
         } else {
             // Highlight matching entities, dim hidden entities
+            // Include component icon in the label
+            let display_name = format!("{} {}", component_icon, entity_name);
             let label_text = if is_hidden {
-                egui::RichText::new(&entity_name).color(egui::Color32::DARK_GRAY)
+                egui::RichText::new(&display_name).color(egui::Color32::DARK_GRAY)
             } else if !search_filter.is_empty() && name_matches {
-                egui::RichText::new(&entity_name).color(egui::Color32::YELLOW)
+                egui::RichText::new(&display_name).color(egui::Color32::YELLOW)
             } else {
-                egui::RichText::new(&entity_name)
+                egui::RichText::new(&display_name)
             };
 
             let response = ui.selectable_label(is_selected, label_text);
